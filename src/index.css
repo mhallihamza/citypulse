@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pulse: #246bff;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-ink-50 font-sans text-ink-900 antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ---------- Scrollbars ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c3cddd transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #c3cddd;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark-scroll::-webkit-scrollbar-thumb {
+  background: #2e3b52;
+}
+
+/* ---------- Utilities ---------- */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 42px 42px;
+}
+.bg-grid-dark {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+.text-gradient {
+  background: linear-gradient(100deg, #7fb0ff 0%, #246bff 42%, #34d399 110%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.radio-wave {
+  position: relative;
+}
+.radio-wave::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 1px solid rgba(52, 211, 153, 0.7);
+  animation: liveRing 2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+
+@keyframes liveRing {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* Blueprint map base */
+.map-canvas {
+  background-color: #0c1424;
+  background-image:
+    radial-gradient(1200px 500px at 30% 0%, rgba(36, 107, 255, 0.16), transparent 60%),
+    linear-gradient(to right, rgba(122, 148, 186, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(122, 148, 186, 0.07) 1px, transparent 1px);
+  background-size: auto, 46px 46px, 46px 46px;
+}
+
+.map-canvas-light {
+  background-color: #eef2f8;
+  background-image:
+    radial-gradient(1200px 500px at 30% 0%, rgba(36, 107, 255, 0.08), transparent 60%),
+    linear-gradient(to right, rgba(23, 37, 84, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(23, 37, 84, 0.06) 1px, transparent 1px);
+  background-size: auto, 46px 46px, 46px 46px;
+}
+
+.marker-pulse {
+  position: relative;
+}
+.marker-pulse::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  animation: markerPing 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.marker-pulse.red::before {
+  background: rgba(239, 68, 68, 0.5);
+}
+.marker-pulse.amber::before {
+  background: rgba(245, 158, 11, 0.45);
+}
+.marker-pulse.green::before {
+  background: rgba(16, 185, 129, 0.4);
+}
+.marker-pulse.slate::before {
+  background: rgba(100, 116, 139, 0.4);
+}
+
+@keyframes markerPing {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.55;
+  }
+  75%,
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* Live feed items */
+.feed-item {
+  animation: feedIn 0.5s ease-out both;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, #e4e9f1 25%, #f1f4f9 50%, #e4e9f1 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 6px;
+}
+.dark .skeleton,
+.skeleton-dark {
+  background: linear-gradient(90deg, #1b2739 25%, #24344a 50%, #1b2739 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* Public hero grid glow */
+.hero-grid {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 30%, transparent 75%);
+}
+
+/* Card hover lift */
+.lift {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px -12px rgba(10, 18, 32, 0.16);
+}
+
+/* Scroll fade on tables */
+.scroll-shadow-left {
+  box-shadow: inset 8px 0 8px -8px rgba(10, 18, 32, 0.1);
+}
