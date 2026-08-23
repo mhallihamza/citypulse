@@ -7,17 +7,28 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { User } from "@supabase/supabase-js";
+import { hasSupabase, subscribeOrgRealtime, supabase } from "@/lib/supabase";
+import * as api from "@/lib/api";
 import type {
   AiInsight,
-  AppData,
   AppNotification,
   CityEvent,
-  DeviceMode,
+  Device,
+  DeviceCommand,
+  LightingState,
+  Location,
+  Organization,
+  OrgInvite,
+  OrgService,
   Profile,
+  ServiceId,
+  TelemetrySample,
   Ticket,
+  TicketPriority,
+  TicketStatus,
 } from "@/lib/types";
-import { createInitialData, demoProfile } from "@/lib/mock";
-import { tick, tickInsights } from "@/lib/simulate";
+import { errMsg, isSchemaError } from "@/lib/api";
 
 export interface Toast {
   id: string;
@@ -27,58 +38,105 @@ export interface Toast {
 }
 
 interface AppContextValue {
-  data: AppData;
+  // ---- platform / auth ----
+  booting: boolean;
+  needsConfig: boolean; // no VITE_ credentials present
+  authUser: User | null;
+  profile: Profile | null;
+  organization: Organization | null;
+  services: OrgService[];
+  orgId: string | null;
+  isAdmin: boolean;
+  loadingData: boolean;
+  realtimeOnline: boolean;
+  /** True when the CITYPULSE schema is not installed in the Supabase project. */
+  schemaMissing: boolean;
+  /** True when the signed-in user still needs to create/join an organization. */
+  needsOnboarding: boolean;
+
+  // ---- real, org-scoped data ----
+  devices: Device[];
+  states: Record<string, LightingState>;
+  telemetry: Record<string, TelemetrySample[]>;
+  events: CityEvent[];
+  tickets: Ticket[];
+  notifications: AppNotification[];
+  insights: AiInsight[];
+  commands: DeviceCommand[];
+  locations: Location[];
+  users: Profile[];
+  invites: OrgInvite[];
+
   now: number;
   toasts: Toast[];
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
-  demoMode: boolean;
-  user: Profile | null;
-  login: (email: string) => void;
-  loginAs: (role: Profile["role"]) => void;
-  register: (p: {
-    fullName: string;
-    email: string;
-    organization: string;
-    orgType: Profile["organizationType"];
-    role: string;
-  }) => void;
-  logout: () => void;
-  updateProfile: (patch: Partial<Profile>) => void;
-  acknowledgeEvent: (id: string) => void;
-  resolveEvent: (id: string) => void;
-  createTicketFromEvent: (event: CityEvent) => void;
-  createTicketFromInsight: (insight: AiInsight) => void;
-  toggleDeviceMode: (deviceId: string, mode: DeviceMode) => void;
-  setTicketStatus: (id: string, status: Ticket["status"]) => void;
-  assignTicket: (id: string, operatorId: string) => void;
-  addComment: (id: string, body: string) => void;
-  markNotificationRead: (id: string) => void;
-  markAllNotificationsRead: () => void;
-  acknowledgeInsight: (id: string) => void;
-  actionInsight: (id: string) => void;
+
+  // ---- auth actions ----
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (fullName: string, email: string, password: string) => Promise<{ needsConfirmation: boolean }>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  createOrganization: (name: string) => Promise<void>;
+  joinOrganization: (code: string) => Promise<void>;
+
+  // ---- operations ----
+  refreshAll: () => Promise<void>;
+  createDevice: (input: api.CreateDeviceInput) => Promise<void>;
+  sendCommand: (deviceId: string, command: string, payload?: Record<string, unknown>) => Promise<void>;
+  acknowledgeEvent: (id: string) => Promise<void>;
+  resolveEvent: (id: string) => Promise<void>;
+  createTicket: (input: { title: string; service: ServiceId; priority: TicketPriority; deviceId?: string | null; description?: string }) => Promise<void>;
+  setTicketStatus: (ticketId: string, status: TicketStatus) => Promise<void>;
+  assignTicket: (ticketId: string, userId: string) => Promise<void>;
+  addTicketComment: (ticketId: string, body: string) => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
+  acknowledgeInsight: (id: string) => Promise<void>;
+  actionInsight: (id: string) => Promise<void>;
+  createInvite: (email: string, role: string) => Promise<string>;
+  revokeInvite: (id: string) => Promise<void>;
+
   unreadCount: number;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const STORAGE_KEY = "citypulse:user";
-
-function restoreSession(): Profile | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Profile) : null;
-  } catch {
-    return null;
-  }
-}
+const REALTIME_TABLES = ["lighting_states", "events", "device_commands", "tickets", "notifications"];
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState(() => createInitialData());
-  const [session, setSession] = useState<Profile | null>(() => restoreSession());
+  const [booting, setBooting] = useState(true);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [services, setServices] = useState<OrgService[]>([]);
+  const [loadingData, setLoadingData] = useState(false);
+  const [realtimeOnline, setRealtimeOnline] = useState(false);
+  const [schemaMissing, setSchemaMissing] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const seq = useRef(300);
+
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [states, setStates] = useState<Record<string, LightingState>>({});
+  const [telemetry, setTelemetry] = useState<Record<string, TelemetrySample[]>>({});
+  const [events, setEvents] = useState<CityEvent[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [insights, setInsights] = useState<AiInsight[]>([]);
+  const [commands, setCommands] = useState<DeviceCommand[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [invites, setInvites] = useState<OrgInvite[]>([]);
+
+  // Refs so realtime handlers always see fresh joins.
+  const devicesRef = useRef<Device[]>([]);
+  const usersRef = useRef<Profile[]>([]);
+  const statesRef = useRef<Record<string, LightingState>>({});
+  const eventsRef = useRef<CityEvent[]>([]);
+  const ticketsRef = useRef<Ticket[]>([]);
+  const notificationsRef = useRef<AppNotification[]>([]);
+  const commandsRef = useRef<DeviceCommand[]>([]);
 
   const toast = useCallback((t: Omit<Toast, "id">) => {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -95,269 +153,517 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(iv);
   }, []);
 
-  const demoMode = !session;
-
-  // Stand-in for Supabase Realtime subscriptions. This always runs while a
-  // session exists (or in anonymous demo mode) so the operations platform
-  // streams live data. In production, swap this for `subscribeRealtime(...)`
-  // from lib/supabase.ts and the same AppData shape keeps flowing.
   useEffect(() => {
-    const iv = window.setInterval(() => {
-      setData((prev) => tickInsights(tick(prev)));
-    }, 3500);
-    return () => window.clearInterval(iv);
+    devicesRef.current = devices;
+  }, [devices]);
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+  useEffect(() => {
+    statesRef.current = states;
+  }, [states]);
+  useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
+  useEffect(() => {
+    ticketsRef.current = tickets;
+  }, [tickets]);
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
+  useEffect(() => {
+    commandsRef.current = commands;
+  }, [commands]);
+// ----------------------------------------------------------------
+  // Hydration & data refresh
+  // ----------------------------------------------------------------
+
+  const orgIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    orgIdRef.current = profile?.organizationId ?? null;
+  }, [profile?.organizationId]);
+
+  const clearOrgData = useCallback(() => {
+    setProfile(null);
+    setOrganization(null);
+    setServices([]);
+    setDevices([]);
+    setStates({});
+    setTelemetry({});
+    setEvents([]);
+    setTickets([]);
+    setNotifications([]);
+    setInsights([]);
+    setCommands([]);
+    setLocations([]);
+    setUsers([]);
+    setInvites([]);
+    setNeedsOnboarding(false);
+    setRealtimeOnline(false);
   }, []);
 
-  // ----- helpers -----
-  const persist = useCallback((p: Profile) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-    setSession(p);
-  }, []);
-
-  const login = useCallback(
-    (email: string) => {
-      persist({ ...demoProfile, email, fullName: "Yassine El Amrani" });
-      toast({ title: "Signed in", message: "Welcome back, Yassine. Live telemetry resumed.", severity: "success" });
-    },
-    [persist, toast]
-  );
-
-  const loginAs = useCallback(
-    (role: Profile["role"]) => {
-      persist({ ...demoProfile, role });
-      toast({ title: `Signed in as ${role}`, severity: "success", message: "Permissions applied to this session." });
-    },
-    [persist, toast]
-  );
-
-  const register = useCallback(
-    (p: { fullName: string; email: string; organization: string; orgType: Profile["organizationType"]; role: string }) => {
-      persist({ ...demoProfile, fullName: p.fullName, email: p.email, organization: p.organization, organizationType: p.orgType });
-      toast({ title: "Account created", message: "Your onboarding workspace is ready.", severity: "success" });
-    },
-    [persist, toast]
-  );
-
-  const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setSession(null);
-  }, []);
-
-  const updateProfile = useCallback(
-    (patch: Partial<Profile>) => {
-      setSession((s) => (s ? { ...s, ...patch } : s));
-      toast({ title: "Profile updated", severity: "success" });
-    },
-    [toast]
-  );
-
-  // ===OPERATIONS===
-  const acknowledgeEvent = useCallback((id: string) => {
-    setData((d) => ({
-      ...d,
-      events: d.events.map((e) =>
-        e.id === id && e.status === "new" ? { ...e, status: "acknowledged" as const, acknowledgedAt: Date.now() } : e
-      ),
-    }));
-  }, []);
-
-  const resolveEvent = useCallback((id: string) => {
-    setData((d) => ({
-      ...d,
-      events: d.events.map((e) => (e.id === id ? { ...e, status: "resolved" as const, resolvedAt: Date.now() } : e)),
-    }));
-  }, []);
-
-  const createTicketFromEvent = useCallback(
-    (ev: CityEvent) => {
-      const prefix = { lighting: "LGT", water: "WAT", waste: "WST", traffic: "TRF" }[ev.service];
-      const tid = `${prefix}-${(seq.current += 11)}`;
-      const t: Ticket = {
-        id: tid,
-        title: ev.title,
-        service: ev.service,
-        priority: ev.severity === "critical" ? "critical" : "high",
-        status: "open",
-        deviceId: ev.deviceId,
-        createdBy: "CITYPULSE AI",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        description: ev.detail,
-        aiAnalysis: undefined,
-        comments: [],
-        timeline: [{ ts: Date.now(), label: `Ticket created from event ${ev.id}`, actor: "CITYPULSE AI" }],
-        attachmentCount: 0,
-      };
-      setData((d) => ({ ...d, tickets: [t, ...d.tickets] }));
-      toast({ title: `Ticket ${tid} created`, message: `Linked to ${ev.deviceId}.`, severity: "info" });
+  const hydrateProfile = useCallback(
+    async (userId: string) => {
+      try {
+        const p = await api.fetchProfileByUserId(userId);
+        setProfile(p);
+        if (p?.organizationId) {
+          const [org, svcs] = await Promise.all([
+            api.fetchOrganization(p.organizationId),
+            api.fetchServices(p.organizationId),
+          ]);
+          setOrganization(org);
+          setServices(svcs);
+          setNeedsOnboarding(false);
+        } else {
+          // Authenticated but no profile row / no organization yet.
+          setOrganization(null);
+          setServices([]);
+          setNeedsOnboarding(true);
+        }
+      } catch (e) {
+        console.error("hydrateProfile", e);
+        if (isSchemaError(e)) {
+          setSchemaMissing(true);
+        } else {
+          toast({ title: "Could not load your profile", message: errMsg(e), severity: "critical" });
+        }
+      }
     },
     [toast]
   );
 
-  const createTicketFromInsight = useCallback(
-    (ins: AiInsight) => {
-      const prefix = { lighting: "LGT", water: "WAT", waste: "WST", traffic: "TRF" }[ins.service];
-      const tid = `${prefix}-${(seq.current += 7)}`;
-      const t: Ticket = {
-        id: tid,
-        title: ins.title,
-        service: ins.service,
-        priority: ins.severity === "critical" ? "critical" : "high",
-        status: "open",
-        deviceId: ins.devices[0],
-        createdBy: "CITYPULSE AI",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        description: ins.recommendation,
-        aiAnalysis: ins.observation,
-        comments: [],
-        timeline: [{ ts: Date.now(), label: "Ticket created from AI insight", actor: "CITYPULSE AI" }],
-        attachmentCount: 0,
-      };
-      setData((d) => ({
-        ...d,
-        tickets: [t, ...d.tickets],
-        insights: d.insights.map((i) => (i.id === ins.id ? { ...i, status: "actioned" as const } : i)),
+  const refreshAll = useCallback(async () => {
+    const org = orgIdRef.current;
+    if (!supabase || !org) return;
+    setLoadingData(true);
+    try {
+      const [devs, st, evs, tks, nts, ins, cmds, locs, orgUsers, inv] = await Promise.all([
+        api.fetchDevices(org),
+        api.fetchLightingStates(org),
+        api.fetchEvents(org),
+        api.fetchTickets(org),
+        api.fetchNotifications(org),
+        api.fetchInsights(org),
+        api.fetchCommands(org),
+        api.fetchLocations(org),
+        api.fetchOrgUsers(org),
+        api.fetchInvites(org),
+      ]);
+
+      const tel = await api.fetchTelemetry(org, devs.map((d) => d.id));
+
+      const commandsJoined = cmds.map((c) => ({
+        ...c,
+        deviceKey: devs.find((d) => d.id === c.deviceId)?.deviceKey ?? "",
+        requestedByName: orgUsers.find((u) => u.id === c.requestedBy)?.fullName ?? null,
       }));
-      toast({ title: `Ticket ${tid} created`, message: "From AI recommendation.", severity: "info" });
+      const ticketsJoined = tks.map((t) => ({
+        ...t,
+        assigneeName: orgUsers.find((u) => u.id === t.assignedTo)?.fullName ?? null,
+      }));
+
+      setDevices(devs);
+      setStates(Object.fromEntries(st.map((s) => [s.deviceId, s])));
+      setTelemetry(tel);
+      setEvents(evs);
+      setTickets(ticketsJoined);
+      setNotifications(nts);
+      setInsights(ins);
+      setCommands(commandsJoined);
+      setLocations(locs);
+      setUsers(orgUsers);
+      setInvites(inv);
+    } catch (e) {
+      console.error("refreshAll", e);
+      if (isSchemaError(e)) {
+        setSchemaMissing(true);
+      } else {
+        toast({ title: "Could not load platform data", message: errMsg(e), severity: "critical" });
+      }
+    } finally {
+      setLoadingData(false);
+    }
+  }, [toast]);
+
+  // ----------------------------------------------------------------
+  // Auth bootstrap
+  // ----------------------------------------------------------------
+
+  useEffect(() => {
+    if (!supabase) {
+      setBooting(false);
+      return;
+    }
+    let mounted = true;
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setAuthUser(data.session?.user ?? null);
+        if (data.session?.user) void hydrateProfile(data.session.user.id);
+      })
+      .finally(() => {
+        if (mounted) setBooting(false);
+      });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+      if (session?.user) void hydrateProfile(session.user.id);
+      else clearOrgData();
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [clearOrgData, hydrateProfile]);
+
+  useEffect(() => {
+    if (!profile?.organizationId) return;
+    void refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.organizationId]);
+// ----------------------------------------------------------------
+  // Realtime (org-safe: RLS also filters broadcast rows server-side)
+  // ----------------------------------------------------------------
+
+  const handleRealtime = useCallback(
+    (table: string, row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => {
+      setRealtimeOnline(true);
+      const nowMs = Date.now();
+
+      if (table === "lighting_states") {
+        const s = api.mapState(row as never);
+        setStates((prev) => {
+          const prevRow = prev[s.deviceId] ?? s;
+          const merged = {
+            ...prevRow,
+            ...s,
+            online: s.online || (s.lastSeen ? nowMs - s.lastSeen < 90_000 : prevRow.online),
+          };
+          return { ...prev, [s.deviceId]: merged };
+        });
+        return;
+      }
+
+      if (table === "events") {
+        const ev = api.mapEvent(row as never);
+        setEvents((prev) => {
+          if (event === "DELETE") return prev.filter((e) => e.id !== ev.id);
+          const exists = prev.some((e) => e.id === ev.id);
+          return exists ? prev.map((e) => (e.id === ev.id ? ev : e)) : [ev, ...prev].slice(0, 200);
+        });
+        return;
+      }
+
+      if (table === "device_commands") {
+        const c = api.mapCommand(row as never);
+        const dev = devicesRef.current.find((d) => d.id === c.deviceId);
+        const who = c.requestedBy ? usersRef.current.find((u) => u.id === c.requestedBy)?.fullName ?? null : null;
+        const joined = { ...c, deviceKey: dev?.deviceKey ?? "", requestedByName: who };
+        setCommands((prev) => {
+          if (event === "DELETE") return prev.filter((x) => x.id !== joined.id);
+          const exists = prev.some((x) => x.id === joined.id);
+          return exists ? prev.map((x) => (x.id === joined.id ? joined : x)) : [joined, ...prev].slice(0, 100);
+        });
+        return;
+      }
+
+      if (table === "tickets") {
+        const t = api.mapTicket(row as never);
+        const who = t.assignedTo ? usersRef.current.find((u) => u.id === t.assignedTo)?.fullName ?? null : null;
+        const joined = { ...t, assigneeName: who };
+        setTickets((prev) => {
+          if (event === "DELETE") return prev.filter((x) => x.id !== joined.id);
+          const exists = prev.some((x) => x.id === joined.id);
+          return exists ? prev.map((x) => (x.id === joined.id ? joined : x)) : [joined, ...prev].slice(0, 150);
+        });
+        return;
+      }
+
+      if (table === "notifications") {
+        const n = api.mapNotification(row as never);
+        setNotifications((prev) => {
+          if (event === "DELETE") return prev.filter((x) => x.id !== n.id);
+          const exists = prev.some((x) => x.id === n.id);
+          return exists ? prev.map((x) => (x.id === n.id ? n : x)) : [n, ...prev].slice(0, 60);
+        });
+        return;
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!supabase || !profile?.organizationId) return;
+    const unsub = subscribeOrgRealtime(REALTIME_TABLES, handleRealtime);
+    return () => {
+      unsub();
+    };
+  }, [profile?.organizationId, handleRealtime]);
+// ----------------------------------------------------------------
+  // Auth actions (real Supabase Auth)
+  // ----------------------------------------------------------------
+
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      if (!supabase) throw new Error("Supabase is not configured");
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      toast({ title: "Signed in", severity: "success", message: "Loading your workspace…" });
     },
     [toast]
   );
 
-  // ===COMMANDS===
-  const toggleDeviceMode = useCallback(
-    (deviceId: string, mode: DeviceMode) => {
-      setData((d) => ({
-        ...d,
-        devices: d.devices.map((x) =>
-          x.id === deviceId
-            ? { ...x, mode, entityStatus: mode === "NORMAL" ? ("normal" as const) : ("warning" as const) }
-            : x
-        ),
-      }));
-      toast({ title: `Command sent to ${deviceId}`, message: `Mode set to ${mode}.`, severity: "success" });
+  const signUp = useCallback(async (fullName: string, email: string, password: string) => {
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: fullName } },
+    });
+    if (error) throw error;
+    return { needsConfirmation: !data.session };
+  }, []);
+
+  const signOut = useCallback(async () => {
+    if (supabase) await supabase.auth.signOut();
+    clearOrgData();
+  }, [clearOrgData]);
+
+  const resetPassword = useCallback(async (email: string) => {
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) throw error;
+  }, []);
+
+  const createOrganization = useCallback(
+    async (name: string) => {
+      await api.rpcRegisterOrganization(name);
+      const u = await supabase?.auth.getUser();
+      if (u?.data?.user) await hydrateProfile(u.data.user.id);
+      toast({ title: "Organization created", message: `${name} is ready (Lighting service enabled).`, severity: "success" });
     },
-    [toast]
+    [hydrateProfile, toast]
   );
 
-  // ===TICKET STATUS===
-  const setTicketStatus = useCallback(
-    (id: string, status: Ticket["status"]) => {
-      const label = { open: "reopened", in_progress: "work started", resolved: "resolved", reopened: "reopened" }[status];
-      setData((d) => ({
-        ...d,
-        tickets: d.tickets.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                status,
-                updatedAt: Date.now(),
-                resolution: status === "resolved" ? t.resolution ?? "Resolved and verified on site." : t.resolution,
-                timeline: [...t.timeline, { ts: Date.now(), label: `Ticket ${label}`, actor: "Current user" }],
-              }
-            : t
-        ),
-      }));
-      toast({ title: `${id} ${label}`, severity: "success" });
+  const joinOrganization = useCallback(
+    async (code: string) => {
+      await api.rpcJoinOrganization(code);
+      const u = await supabase?.auth.getUser();
+      if (u?.data?.user) await hydrateProfile(u.data.user.id);
+      toast({ title: "Joined organization", severity: "success" });
     },
-    [toast]
+    [hydrateProfile, toast]
+  );
+
+  // ----------------------------------------------------------------
+  // Operations (every write goes through Supabase; RLS enforces tenant)
+  // ----------------------------------------------------------------
+
+  const createDevice = useCallback(
+    async (input: api.CreateDeviceInput) => {
+      const org = orgIdRef.current;
+      if (!org) throw new Error("No organization on this account yet.");
+      await api.insertDevice(org, input);
+      await refreshAll();
+      toast({ title: "Device registered", message: `${input.deviceKey.toUpperCase()} saved to the device registry.`, severity: "success" });
+    },
+    [refreshAll, toast]
+  );
+
+  const sendCommand = useCallback(
+    async (deviceId: string, command: string, payload: Record<string, unknown> = {}) => {
+      const org = orgIdRef.current;
+      if (!org) throw new Error("No organization on this account.");
+      const user = await supabase?.auth.getUser();
+      await api.insertCommand(org, user?.data?.user?.id ?? null, deviceId, command, payload);
+      await refreshAll();
+      toast({
+        title: `Command ${command} queued`,
+        message: "Stored as PENDING. Fusion AI delivers it via MQTT; the UI only reflects confirmed database state.",
+        severity: "info",
+      });
+    },
+    [refreshAll, toast]
+  );
+
+  const acknowledgeEvent = useCallback(
+    async (id: string) => {
+      await api.updateEventStatus(id, { status: "acknowledged", acknowledged_at: new Date().toISOString() });
+      const userId = authUser?.id ?? null;
+      void api.insertAudit({ orgId: orgIdRef.current ?? "", actorId: userId, action: "event.acknowledged", entityType: "events", entityId: id });
+    },
+    [authUser]
+  );
+
+  const resolveEvent = useCallback(
+    async (id: string) => {
+      await api.updateEventStatus(id, { status: "resolved", resolved_at: new Date().toISOString() });
+      const userId = authUser?.id ?? null;
+      void api.insertAudit({ orgId: orgIdRef.current ?? "", actorId: userId, action: "event.resolved", entityType: "events", entityId: id });
+      toast({ title: "Event resolved", severity: "success" });
+    },
+    [authUser, toast]
+  );
+
+  const ticketSeq = useRef(0);
+
+  const createTicket = useCallback(
+    async (input: { title: string; service: ServiceId; priority: TicketPriority; deviceId?: string | null; description?: string }) => {
+      const org = orgIdRef.current;
+      if (!supabase || !org) throw new Error("No organization on this account.");
+      const prefix = { lighting: "LGT", water: "WAT", waste: "WST", traffic: "TRF" }[input.service];
+      ticketSeq.current += 1;
+      const ticketKey = `${prefix}-${String(ticketSeq.current).padStart(3, "0")}`;
+      await api.insertTicket({
+        orgId: org,
+        ticketKey,
+        title: input.title,
+        service: input.service,
+        priority: input.priority,
+        deviceId: input.deviceId ?? null,
+        description: input.description ?? null,
+        createdBy: profile?.fullName ?? "CityPulse Operator",
+      });
+      await refreshAll();
+      toast({ title: `Ticket ${ticketKey} created`, severity: "success" });
+    },
+    [profile, refreshAll, toast]
+  );
+const setTicketStatus = useCallback(
+    async (ticketId: string, status: TicketStatus) => {
+      await api.updateTicket(ticketId, { status });
+      await refreshAll();
+      toast({ title: `Ticket ${status.replace("_", " ")}`, severity: "success" });
+    },
+    [refreshAll, toast]
   );
 
   const assignTicket = useCallback(
-    (id: string, operatorId: string) => {
-      setData((d) => ({
-        ...d,
-        tickets: d.tickets.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                operatorId,
-                updatedAt: Date.now(),
-                timeline: [...t.timeline, { ts: Date.now(), label: `Assigned to operator #${operatorId}`, actor: "Current user" }],
-              }
-            : t
-        ),
-      }));
-      toast({ title: `${id} assigned`, severity: "success" });
+    async (ticketId: string, userId: string) => {
+      await api.updateTicket(ticketId, { assigned_to: userId });
+      await refreshAll();
+      const who = usersRef.current.find((u) => u.id === userId)?.fullName ?? "User";
+      toast({ title: "Ticket assigned", message: who, severity: "success" });
     },
-    [toast]
+    [refreshAll, toast]
   );
 
-  const addComment = useCallback(
-    (id: string, body: string) => {
-      setData((d) => ({
-        ...d,
-        tickets: d.tickets.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                updatedAt: Date.now(),
-                comments: [...t.comments, { id: `c-${Date.now()}`, author: session?.fullName ?? "User", body, ts: Date.now() }],
-              }
-            : t
-        ),
-      }));
+  const addTicketComment = useCallback(
+    async (ticketId: string, body: string) => {
+      await api.insertTicketComment(ticketId, profile?.fullName ?? "System", body);
       toast({ title: "Comment added", severity: "success" });
     },
-    [session, toast]
+    [profile, toast]
   );
 
-  const markNotificationRead = useCallback((id: string) => {
-    setData((d) => ({
-      ...d,
-      notifications: d.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    }));
+  const markNotificationRead = useCallback(async (id: string) => {
+    await api.markNotificationRead(id);
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   }, []);
 
-  const markAllNotificationsRead = useCallback(() => {
-    setData((d) => ({
-      ...d,
-      notifications: d.notifications.map((n) => ({ ...n, read: true })),
-    }));
+  const markAllNotificationsRead = useCallback(async () => {
+    await api.markAllNotificationsRead(orgIdRef.current);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   }, []);
 
-  const acknowledgeInsight = useCallback((id: string) => {
-    setData((d) => ({
-      ...d,
-      insights: d.insights.map((i) => (i.id === id ? { ...i, status: "acknowledged" as const } : i)),
-    }));
-  }, []);
+  const acknowledgeInsight = useCallback(
+    async (id: string) => {
+      await api.updateInsightStatus(id, "acknowledged");
+      setInsights((prev) => prev.map((i) => (i.id === id ? { ...i, status: "acknowledged" } : i)));
+    },
+    []
+  );
 
   const actionInsight = useCallback(
-    (id: string) => {
-      const ins = data.insights.find((i) => i.id === id);
-      if (ins) createTicketFromInsight(ins);
+    async (id: string) => {
+      const ins = insights.find((i) => i.id === id);
+      if (!ins) return;
+      await createTicket({
+        title: ins.title,
+        service: ins.service,
+        priority: ins.severity === "critical" ? "critical" : "high",
+        deviceId: null,
+        description: ins.recommendation,
+      });
+      await api.updateInsightStatus(id, "actioned");
+      setInsights((prev) => prev.map((i) => (i.id === id ? { ...i, status: "actioned" } : i)));
     },
-    [data.insights, createTicketFromInsight]
+    [createTicket, insights]
   );
 
-  const unreadCount = data.notifications.filter((n) => !n.read).length;
+  const createInvite = useCallback(
+    async (email: string, role: string) => {
+      const code = await api.rpcCreateInvite(email, role);
+      await refreshAll();
+      return code;
+    },
+    [refreshAll]
+  );
+
+  const revokeInvite = useCallback(
+    async (id: string) => {
+      await api.rpcRevokeInvite(id);
+      await refreshAll();
+    },
+    [refreshAll]
+  );
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const orgId = profile?.organizationId ?? null;
 
   const value: AppContextValue = {
-    data,
+    booting,
+    needsConfig: !hasSupabase,
+    authUser,
+    profile,
+    organization,
+    services,
+    orgId,
+    isAdmin: profile?.role === "admin",
+    loadingData,
+    realtimeOnline,
+    schemaMissing,
+    needsOnboarding,
+    devices,
+    states,
+    telemetry,
+    events,
+    tickets,
+    notifications,
+    insights,
+    commands,
+    locations,
+    users,
+    invites,
     now,
     toasts,
     toast,
     dismissToast,
-    demoMode,
-    user: session,
-    login,
-    loginAs,
-    register,
-    logout,
-    updateProfile,
+    signIn,
+    signUp,
+    signOut,
+    resetPassword,
+    createOrganization,
+    joinOrganization,
+    refreshAll,
+    createDevice,
+    sendCommand,
     acknowledgeEvent,
     resolveEvent,
-    createTicketFromEvent,
-    createTicketFromInsight,
-    toggleDeviceMode,
+    createTicket,
     setTicketStatus,
     assignTicket,
-    addComment,
+    addTicketComment,
     markNotificationRead,
     markAllNotificationsRead,
     acknowledgeInsight,
     actionInsight,
+    createInvite,
+    revokeInvite,
     unreadCount,
   };
 

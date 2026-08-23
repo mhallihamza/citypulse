@@ -1,153 +1,185 @@
 /**
- * CITYPULSE domain model.
- * Mirrors the Supabase / PostgreSQL data model (see supabase/schema.sql).
- * Entities: profiles, organizations, services, devices, device_telemetry,
- * events, tickets, ticket_assignments, notifications, locations, ai_insights.
+ * CITYPULSE — Smart City Operations Platform
+ *
+ * Domain model. Mirrors the Supabase / PostgreSQL schema
+ * (see supabase/schema.sql + schema_part2.sql). All types in this file are
+ * plain data shapes mapped from real database rows — nothing here is simulated.
  */
 
 export type ServiceId = "lighting" | "water" | "waste" | "traffic";
 
 export type Severity = "critical" | "warning" | "info";
-
 export type EntityStatus = "normal" | "warning" | "critical" | "offline";
-
-export type DeviceStatus = "online" | "offline";
-
-export type LightingMode = "NORMAL" | "OFF" | "FAILURE";
-export type DeviceMode = LightingMode | "ON";
-
+export type EventStatus = "new" | "acknowledged" | "resolved";
+export type TicketStatus = "open" | "in_progress" | "resolved" | "reopened";
+export type TicketPriority = "critical" | "high" | "medium" | "low";
+export type InsightStatus = "new" | "acknowledged" | "actioned";
+export type CommandStatus = "PENDING" | "DELIVERED" | "FAILED" | "CANCELLED";
+export type InviteStatus = "PENDING" | "ACCEPTED" | "REVOKED";
 export type Role = "admin" | "supervisor" | "operator" | "viewer";
+
+export const SERVICE_IDS: ServiceId[] = ["lighting", "water", "waste", "traffic"];
+
+// ---------------------------------------------------------------------------
+// Tenant & users
+// ---------------------------------------------------------------------------
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  type: string;
+  region: string | null;
+}
 
 export interface Profile {
   id: string;
   fullName: string;
   email: string;
-  organization: string;
-  organizationType: "municipality" | "infrastructure_company" | "technology_provider" | "other";
   role: Role;
+  organizationId: string | null;
 }
 
-export interface Point {
-  x: number; // 0..1000 map space
-  y: number; // 0..1000 map space
+export interface OrgService {
+  name: ServiceId;
+  label: string;
+  enabled: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Locations & devices
+// ---------------------------------------------------------------------------
+
+export interface Location {
+  id: string;
+  orgId: string;
+  label: string;
+  zone: string;
+  district: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface Device {
+  id: string; // uuid
+  deviceKey: string; // e.g. L-104 (unique per organization)
+  displayId: string;
+  displayName: string;
+  service: ServiceId;
+  type: string;
+  locationId: string | null;
+  zone: string;
+  district: string | null;
+  locationLabel: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  firmware: string;
+  mqttTopic: string | null;
+  status: EntityStatus;
+  mode: string; // NORMAL | OFF | FAILURE
+  online: boolean;
+  signal: number | null;
+  battery: number | null;
+  lastHeartbeat: number | null;
+  lastTelemetry: number | null;
+  metadata: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Lighting
+// ---------------------------------------------------------------------------
+
+/** Live operational state for a lighting device (lighting_states table). */
+export interface LightingState {
+  deviceId: string;
+  mode: "NORMAL" | "OFF" | "FAILURE" | string;
+  brightness: number;
+  lux: number | null;
+  presence: boolean;
+  night: boolean;
+  lampFailure: boolean;
+  online: boolean;
+  lastSeen: number;
+}
+
+/** One telemetry sample (device_telemetry row). */
 export interface TelemetrySample {
   ts: number;
   lux?: number;
   brightness?: number;
-  presence?: number; // 0|1
+  presence?: number; // 0 | 1 for charts
   power?: number;
-  flow?: number; // liters per minute per endpoint sample
-  pressure?: number; // bar
-  fillLevel?: number; // 0..100
-  batchCount?: number; // waste collections today
-  vehicles?: number; // vehicles per 15 min
-  density?: number; // 0..100
-  congestion?: number; // 0..100
-  travelTime?: number; // minutes
 }
 
-export interface Device {
-  id: string; // e.g. ESP32-LIGHT-001 / L-104
-  name: string;
-  service: ServiceId;
-  type: string;
-  location: string;
-  zone: string;
-  district: string;
-  status: DeviceStatus;
-  mode: DeviceMode;
-  entityStatus: EntityStatus;
-  firmware: string;
-  mqttTopic: string;
-  lastHeartbeat: number;
-  lastTelemetryAt: number;
-  point: Point;
-  signal: number; // 0..100 RSSI-style quality
-  battery?: number;
-  installedAt: string;
-  linkedInfra: string; // e.g. "Street light L-104"
-}
-
-export type EventStatus = "new" | "acknowledged" | "resolved";
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
 
 export interface CityEvent {
   id: string;
   service: ServiceId;
-  deviceId: string;
+  deviceId: string | null;
+  deviceKey: string | null;
+  eventType: string;
   title: string;
   severity: Severity;
   status: EventStatus;
-  detail: string;
+  detail: string | null;
+  source: string;
   createdAt: number;
-  acknowledgedAt?: number;
-  resolvedAt?: number;
-  source: "realtime" | "ai" | "operator";
+  acknowledgedAt: number | null;
+  resolvedAt: number | null;
 }
-
-export type TicketPriority = "critical" | "high" | "medium" | "low";
-export type TicketStatus = "open" | "in_progress" | "resolved" | "reopened";
 
 export interface TicketComment {
   id: string;
+  ticketId: string;
   author: string;
   body: string;
-  ts: number;
-}
-
-export interface TicketTimelineItem {
-  ts: number;
-  label: string;
-  actor: string;
+  createdAt: number;
 }
 
 export interface Ticket {
-  id: string; // e.g. LGT-104
+  id: string; // uuid
+  ticketKey: string; // e.g. LGT-104
   title: string;
   service: ServiceId;
   priority: TicketPriority;
   status: TicketStatus;
-  deviceId?: string;
-  operatorId?: string;
+  deviceId: string | null;
+  assignedTo: string | null;
+  assigneeName: string | null;
+  description: string | null;
+  aiAnalysis: string | null;
+  resolution: string | null;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
-  description: string;
-  aiAnalysis?: string;
-  comments: TicketComment[];
-  timeline: TicketTimelineItem[];
-  attachmentCount: number;
-  resolution?: string;
 }
 
-export type OperatorStatus = "available" | "on_assignment" | "offline";
-
-export interface Operator {
+export interface DeviceCommand {
   id: string;
-  name: string;
-  initials: string;
-  role: "field_operator" | "supervisor";
-  status: OperatorStatus;
-  email: string;
-  phone: string;
-  service: ServiceId | "all";
-  currentTickets: number;
-  resolvedTotal: number;
-  avgResolutionMin: number;
-  lastActivity: number;
+  deviceId: string;
+  deviceKey: string;
+  command: string; // OFF | NORMAL | SET_BRIGHTNESS
+  payload: Record<string, unknown>;
+  status: CommandStatus;
+  requestedBy: string | null;
+  requestedByName: string | null;
+  requestedAt: number;
+  deliveredAt: number | null;
+  ackAt: number | null;
+  error: string | null;
 }
-
-export type NotificationSeverity = "critical" | "warning" | "info";
 
 export interface AppNotification {
   id: string;
-  severity: NotificationSeverity;
+  severity: Severity;
   title: string;
-  message: string;
+  message: string | null;
   read: boolean;
   ts: number;
-  actionUrl?: string;
+  actionUrl: string | null;
 }
 
 export interface AiInsight {
@@ -155,29 +187,28 @@ export interface AiInsight {
   title: string;
   service: ServiceId;
   severity: Severity;
-  confidence: number; // 0..1
+  confidence: number;
   observation: string;
   evidence: { label: string; value: string }[];
   recommendation: string;
   devices: string[];
   createdAt: number;
-  status: "new" | "acknowledged" | "actioned";
+  status: InsightStatus;
 }
 
-export interface ServiceState {
-  id: ServiceId;
-  label: string;
-  operationalPct: number;
-  trend: number; // points up/down (pp)
-  lastUpdate: number;
+export interface OrgInvite {
+  id: string;
+  code: string;
+  email: string;
+  role: string;
+  status: InviteStatus;
+  createdAt: number;
+  expiresAt: number;
 }
 
-export type ServiceStatusText =
-  | "Operational"
-  | "Normal"
-  | "Warning"
-  | "Critical"
-  | "Offline";
+// ---------------------------------------------------------------------------
+// Display helpers (kept from the original design system)
+// ---------------------------------------------------------------------------
 
 export const SERVICE_LABEL: Record<ServiceId, string> = {
   lighting: "Lighting",
@@ -199,22 +230,9 @@ export const ENTITY_STATUS_COLOR: Record<EntityStatus, string> = {
   offline: "#64748b",
 };
 
-export interface KpiSeries {
-  label: string;
-  value: string;
-  sub: string;
-  trend: "up" | "down" | "flat";
-  color: string;
-  spark: number[];
-}
-
-export interface AppData {
-  profile: Profile;
-  devices: Device[];
-  events: CityEvent[];
-  tickets: Ticket[];
-  operators: Operator[];
-  notifications: AppNotification[];
-  insights: AiInsight[];
-  telemetry: Record<string, TelemetrySample[]>;
-}
+export const ENTITY_STATUS_LABEL: Record<EntityStatus, string> = {
+  normal: "Normal",
+  warning: "Warning",
+  critical: "Critical",
+  offline: "Offline",
+};

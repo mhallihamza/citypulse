@@ -11,9 +11,6 @@ import { cn } from "@/lib/utils";
 const FILTERS: { id: MapServiceFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "lighting", label: "Lighting" },
-  { id: "water", label: "Water" },
-  { id: "waste", label: "Waste" },
-  { id: "traffic", label: "Traffic" },
   { id: "incidents", label: "Incidents" },
 ];
 
@@ -24,50 +21,40 @@ const LAYER_KEYS: { id: keyof CityMapLayers; label: string }[] = [
   { id: "tickets", label: "Tickets" },
 ];
 
+/**
+ * City-wide operations map. Water/Waste/Traffic filters are hidden until
+ * those services are connected — the map never shows devices that do not
+ * exist in the database.
+ */
 export function CityMapPage() {
-  const { data } = useApp();
+  const { devices, states, telemetry, events, tickets } = useApp();
   const [filter, setFilter] = useState<MapServiceFilter>("all");
-  const [layers, setLayers] = useState<CityMapLayers>({
-    devices: true,
-    infrastructure: true,
-    events: true,
-    tickets: true,
-  });
+  const [layers, setLayers] = useState<CityMapLayers>({ devices: true, infrastructure: true, events: true, tickets: true });
 
   const toggleLayer = (id: keyof CityMapLayers) => setLayers((l) => ({ ...l, [id]: !l[id] }));
 
-  const counts: Record<MapServiceFilter, number> = {
-    all: data.devices.length,
-    lighting: data.devices.filter((d) => d.service === "lighting").length,
-    water: data.devices.filter((d) => d.service === "water").length,
-    waste: data.devices.filter((d) => d.service === "waste").length,
-    traffic: data.devices.filter((d) => d.service === "traffic").length,
-    incidents: data.devices.filter((d) => d.entityStatus !== "normal").length,
+  const withCoords = devices.filter((d) => d.latitude != null && d.longitude != null);
+  const counts: Partial<Record<MapServiceFilter, number>> = {
+    all: withCoords.length,
+    lighting: withCoords.filter((d) => d.service === "lighting").length,
+    incidents: withCoords.filter((d) => d.status !== "normal").length,
   };
 
   return (
     <div>
       <PageHeader
         title="City Map"
-        subtitle="Interactive, real-time view of every connected asset across the city."
-        live
+        subtitle="Interactive view of every connected asset with real coordinates."
         actions={
-          <Link to="/app/devices">
+          <Link to="/app/lighting/devices">
             <Button variant="outline" size="sm">Device registry</Button>
           </Link>
         }
       />
 
       <Card className="overflow-hidden">
-        <CardHeader
-          title="Operations map"
-          subtitle="Click a marker for live device detail"
-          action={
-            <Badge tone="success" dot>{data.devices.filter((d) => d.status === "online").length} online</Badge>
-          }
-        />
+        <CardHeader title="Operations map" subtitle="Click a marker for live device detail" action={<Badge tone="neutral" dot>{withCoords.length} located devices</Badge>} />
 
-        {/* Filters + layers */}
         <div className="flex flex-col gap-3 border-b border-ink-100 px-5 py-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-1.5">
             {FILTERS.map((f) => (
@@ -76,13 +63,11 @@ export function CityMapPage() {
                 onClick={() => setFilter(f.id)}
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors",
-                  filter === f.id
-                    ? "bg-ink-900 text-white"
-                    : "bg-ink-100 text-ink-600 hover:bg-ink-200"
+                  filter === f.id ? "bg-ink-900 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200"
                 )}
               >
                 {f.label}
-                <span className="ml-1.5 text-[10px] tabular opacity-70">{counts[f.id]}</span>
+                <span className="ml-1.5 text-[10px] tabular opacity-70">{counts[f.id] ?? 0}</span>
               </button>
             ))}
           </div>
@@ -105,13 +90,15 @@ export function CityMapPage() {
         </div>
 
         <CityMap
-          devices={data.devices}
-          events={data.events}
-          tickets={data.tickets}
-          telemetry={data.telemetry}
+          devices={devices}
+          events={events}
+          tickets={tickets}
+          states={states}
+          telemetry={telemetry}
           serviceFilter={filter}
           layers={layers}
           dark
+          interactive
           className="h-[560px] rounded-none !border-0"
         />
       </Card>

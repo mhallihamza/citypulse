@@ -1,19 +1,29 @@
 # CITYPULSE — Smart City Operations Platform
 
-CITYPULSE is a production-quality Smart City Operations Platform that connects IoT
-devices, real-time telemetry, city infrastructure services, AI analysis, incidents,
-tickets and field operators into one interface.
+CITYPULSE is a **multi-tenant Smart City Operations SaaS**. It connects IoT devices,
+real-time telemetry, city infrastructure services, AI analysis, incidents, tickets
+and field operations into one interface.
 
 ```
-ESP32 / IoT Sensors → MQTT → Backend / MQTT Processing → Supabase PostgreSQL
-  → Supabase Realtime → React app → Operators / AI / Tickets
+ESP32 / IoT Sensors -> MQTT -> Fusion AI (ingestion & processing) -> Supabase PostgreSQL
+      -> Supabase Realtime -> React app -> Operators / Tickets / Commands
 ```
 
-> **Demo mode:** the app is fully interactive out of the box. Without Supabase
-> credentials it runs a **live simulation engine** (`src/lib/simulate.ts`) that
-> streams telemetry, events, tickets and notifications every ~3 seconds — exactly
-> matching what a Supabase Realtime subscription delivers. Add credentials to switch
-> to live data with zero UI changes.
+**CITYPULSE is the PLATFORM. LIGHTING is the currently implemented service.
+Water, Waste and Traffic are future services** — they exist in navigation, the
+dashboard and the data model, and render honest "service not connected yet"
+states until real devices are onboarded. There is **no demo mode**: without
+valid credentials the platform shows a "connect your Supabase project" state
+instead of simulated data.
+
+## Services
+
+| Service  | Status | Notes                                            |
+| -------- | ------ | ------------------------------------------------ |
+| Lighting | Live   | Devices, live state, telemetry, events, commands |
+| Water    | Future | Architecture ready - no fake data                |
+| Waste    | Future | Architecture ready - no fake data                |
+| Traffic  | Future | Architecture ready - no fake data                |
 
 ## Getting started
 
@@ -22,8 +32,19 @@ npm install
 npm run dev        # http://localhost:5173 (hash router)
 ```
 
-**Sign in:** use the demo email/password, or click a role-protected demo
-(Admin / Supervisor / Operator / Viewer) on the login page.
+1. Create a Supabase project.
+2. In Supabase Studio -> SQL Editor, run **`supabase/schema_full.sql`** (single idempotent
+   file — creates every table, RLS policy, trigger and RPC; safe to re-run).
+   Alternatively run `schema.sql` -> `schema_part2.sql` -> `schema_part3.sql` in order.
+3. Copy `.env.example` to `.env.local` and set:
+   - `VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLIC_PUBLISHABLE_KEY`
+4. Register an account, create your organization (you become ADMIN), then
+   register lighting devices from **Lighting -> Devices**.
+
+> Security: use only the publishable key in frontend code. Never place
+> `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_PASSWORD`, `MQTT_PASSWORD` or
+> `FUSION_AI_SECRET` in `VITE_` variables.
 
 ## Scripts
 
@@ -32,60 +53,59 @@ npm run dev        # http://localhost:5173 (hash router)
 - `npm run preview` — preview the production build
 - `npm run typecheck` — TypeScript check only
 
-## Project structure
+## Architecture
 
 ```
-supabase/           schema.sql + _part2/_part3  (PostgreSQL, RLS, triggers)
+supabase/           schema.sql + _part2 + _part3 (tables, RLS, triggers, RPCs)
 src/
-  lib/              types (domain model), mock seed data, live simulation,
-                    chart helpers, supabase client, formatting
-  context/          AppContext (auth, store, realtime tick, all actions)
+  lib/
+    types.ts        domain model mapped 1:1 to database rows
+    services.ts     service registry (lighting live; water/waste/traffic future)
+    supabase.ts     client + org-safe Realtime subscription helper
+    api.ts          typed queries/mutations (all organization-scoped)
+    format.ts       display helpers
+  context/          AppContext — Supabase Auth + org-scoped data + Realtime
   components/
-    ui/             design system (Button, Card, Badge, Modal, Tabs, StatCard…)
+    ui/             design system (Button, Card, Badge, Modal, Tabs...)
     layout/         AppShell (sidebar/topbar/mobile nav) + PublicLayout
-    map/            CityMap — interactive SVG blueprint map with layers & popups
+    map/            CityMap — blueprint map placed ONLY from real lat/lng
   pages/
     public/         Marketing site (Home, Platform, Solutions, About)
-    auth/           Login, Register, Onboarding
-    app/            Dashboard, CityMap, Service pages, Device detail,
-                    Events, Tickets, Operators, AI Insights, Analytics,
-                    Devices, Notifications, Settings
+    auth/           Login, Register (create-org / join-by-invite), Onboarding
+    app/            Dashboard = CITY OVERVIEW, Events, Tickets, TicketDetail,
+                    Notifications, AI Insights, Settings, CityMap
+    app/lighting/   Lighting dashboard, Devices (+create), Device detail
+                    (Overview/Telemetry/Events/Commands/Tickets), Map, Commands
 ```
 
-## Supabase
+## Multi-tenant security
 
-1. Create a Supabase project.
-2. Run `supabase/schema.sql`, `schema_part2.sql`, `schema_part3.sql` in the SQL editor.
-3. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` /
-   `VITE_SUPABASE_ANON_KEY`.
-4. `src/lib/supabase.ts` exposes `subscribeRealtime(["devices","events","tickets",…], cb)`
-   which wires `postgres_changes` channels per table. The simulation engine uses the
-   same data shape, so wiring them together is mechanical.
+- `profiles` rows link `auth.users` to an `organization_id` (created by a trigger).
+- Every tenant-owned table carries `org_id` / `organization_id` with RLS policies
+  scoped through `public.org_org_id(auth.uid())`.
+- Joining an existing organization requires an admin-issued invite code bound to
+  the invitee's email (`join_organization` RPC) — never just a typed name.
+- Realtime payloads are additionally filtered by RLS server-side.
 
-### Real-time entities
+## Command flow (no MQTT in React)
 
-`devices`, `device_telemetry`, `events`, `tickets`, `ticket_assignments`,
-`notifications`, `operators`, `ai_insights` — all scoped per-organization via
-Row Level Security (`org_id_of(auth.uid())`).
+```
+UI click (OFF / NORMAL / SET_BRIGHTNESS)
+  -> insert into device_commands (status PENDING)
+  -> Database Webhook / Edge Function -> Fusion AI -> MQTT -> ESP32
+  -> status becomes DELIVERED / FAILED -> Supabase Realtime -> UI refresh
+```
 
-## Roles
+The UI only ever displays what the database confirms.
 
-- **Admin** — full access.
-- **Supervisor** — monitor operations, assign tickets, manage teams.
-- **Operator** — monitor services, receive events, manage assigned tickets.
-- **Viewer** — read-only.
+## Data flow test checklist
 
-## Design system
-
-Buttons, cards, badges, tables, charts, maps, dropdowns, modals, tabs, tooltips,
-alerts, notifications, timelines, status indicators and command controls, with
-consistent spacing/typography and explicit states for Normal / Success / Warning /
-Critical / Offline / Loading / Empty / Error.
-
-## To-do / notes
-
-- Map is an SVG "blueprint" style canvas (no third-party map tiles) so it works
-  fully offline and themable. Swap `CityMap` internals for Leaflet/MapLibre if you
-  need geo tiles; markers already accept real lat/lng.
-- Command delivery (MQTT publish) is stubbed via the context; wire
-  `toggleDeviceMode` → MQTT in production.
+1. Sign up, confirm email, sign in, create organization.
+2. Lighting -> Devices -> Add device (e.g. `L-104`, type `ESP32_LIGHTING_CONTROLLER`,
+   optional latitude/longitude). A `lighting_states` row is created automatically.
+3. Insert real telemetry into `device_telemetry` (from Fusion AI) -> charts appear.
+4. Insert an event into `events` (e.g. `LAMP_FAILURE`, severity `critical`) -> it
+   appears in Events instantly via Realtime; a ticket is auto-created by trigger.
+5. Update the event to `resolved` / insert `LAMP_RESTORED` -> the UI updates live.
+6. Device page -> Turn OFF -> a PENDING row appears in `device_commands`;
+   mark it DELIVERED from Fusion AI and watch the status change.

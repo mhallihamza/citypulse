@@ -120,9 +120,9 @@ function Hero() {
 
             <div className="mt-10 grid max-w-md grid-cols-3 gap-4">
               {[
-                { k: "1,248+", v: "Connected devices" },
-                { k: "98.2%", v: "Availability" },
-                { k: "<1s", v: "Telemetry latency" },
+                { k: "4", v: "City services" },
+                { k: "Realtime", v: "Telemetry & events" },
+                { k: "AI", v: "Insights & actions" },
               ].map((s) => (
                 <div key={s.v}>
                   <div className="font-display text-2xl font-bold tabular text-ink-900">{s.k}</div>
@@ -185,16 +185,16 @@ function HeroVisual() {
         </svg>
 
         <div className="absolute left-3 top-3 animate-soft-pulse rounded-lg bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-ink-700 shadow-sm backdrop-blur">
-          💡 <span className="tabular">L-104 · 4.2 lx</span>
+          💡 <span className="tabular">Lighting · lux & brightness</span>
         </div>
         <div className="absolute right-3 top-3 rounded-lg bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-ink-700 shadow-sm backdrop-blur">
-          💧 <span className="tabular">W-03 · pressure −0.6 bar</span>
+          💧 <span className="tabular">Water · flow & pressure</span>
         </div>
         <div className="absolute bottom-3 left-4 rounded-lg bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-ink-700 shadow-sm backdrop-blur">
-          🗑 <span className="tabular">B-218 · 87% full</span>
+          🗑 <span className="tabular">Waste · fill level</span>
         </div>
         <div className="absolute bottom-3 right-4 rounded-lg bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-ink-700 shadow-sm backdrop-blur">
-          🚦 <span>Avenue Hassan II · normal</span>
+          🚦 <span>Traffic · density & travel time</span>
         </div>
       </div>
     </div>
@@ -318,12 +318,13 @@ function HowItWorksSection() {
 }
 
 function RealtimeSection() {
-  const { data, now } = useApp();
-  const feed = data.events.slice(0, 5).map((e) => {
-    const dev = data.devices.find((d) => d.id === e.deviceId);
+  const { devices, states, events, now } = useApp();
+  const feed = events.slice(0, 5).map((e) => {
+    const dev = devices.find((d) => d.id === e.deviceId);
     const emoji = e.service === "lighting" ? "💡" : e.service === "water" ? "💧" : e.service === "waste" ? "🗑" : "🚦";
-    return { id: e.id, emoji, title: e.title, tag: `${e.service[0].toUpperCase() + e.service.slice(1)} / ${dev?.location ?? e.deviceId}`, ts: e.createdAt, severity: e.severity };
+    return { id: e.id, emoji, title: e.title, tag: `${e.eventType} · ${dev?.deviceKey ?? e.deviceKey ?? ""}`, ts: e.createdAt, severity: e.severity };
   });
+  const onlineCount = devices.filter((d) => states[d.id]?.online).length;
 
   return (
     <section className="border-t border-ink-100 bg-ink-950 py-20 text-white">
@@ -359,6 +360,11 @@ function RealtimeSection() {
                 Live event feed
               </div>
               <div className="divide-y divide-white/5">
+                {feed.length === 0 && (
+                  <div className="px-4 py-10 text-center text-xs leading-relaxed text-ink-400">
+                    Sign in to your organization to stream real events from your devices.
+                  </div>
+                )}
                 {feed.map((item) => (
                   <div key={item.id} className="feed-item flex items-center gap-3 px-4 py-3">
                     <span className="text-lg">{item.emoji}</span>
@@ -383,16 +389,16 @@ function RealtimeSection() {
           <div className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900 shadow-pop">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-ink-400">
-                <Landmark className="h-4 w-4 text-pulse-400" /> City operations map
+                <Landmark className="h-4 w-4 text-pulse-400" /> City operations map · {devices.length > 0 ? `${onlineCount}/${devices.length} online` : "connect your fleet"}
               </div>
               <span className="inline-flex items-center gap-1.5 rounded-md bg-live-400/10 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-live-300">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live-400" /> Streaming
               </span>
             </div>
             <CityMap
-              devices={data.devices}
-              events={data.events}
-              telemetry={data.telemetry}
+              devices={devices}
+              events={events}
+              states={states}
               dark
               interactive
               noActions

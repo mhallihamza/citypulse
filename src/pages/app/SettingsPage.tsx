@@ -1,40 +1,31 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { User, Building2, Users, ShieldCheck, Bell, LayoutGrid, Plug, KeyRound, Wifi, Copy, ArrowLeft } from "lucide-react";
+import { Building2, Check, Copy, KeyRound, LayoutGrid, ShieldCheck, User, Users } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Card, CardBody, CardHeader, PageHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Form";
+import { EmptyState } from "@/components/ui/Modal";
+import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
+import { errMsg } from "@/lib/api";
+import { timeAgo } from "@/lib/format";
+import { SERVICES } from "@/lib/services";
 import { cn } from "@/lib/utils";
-import type { AppData, Profile } from "@/lib/types";
-
-type TabId = "profile" | "organization" | "users" | "roles" | "notifications" | "services" | "mqtt" | "api" | "security";
+import type { TabId } from "./settings-types";
 
 const TABS: { id: TabId; label: string; icon: typeof User }[] = [
   { id: "profile", label: "Profile", icon: User },
   { id: "organization", label: "Organization", icon: Building2 },
   { id: "users", label: "Users", icon: Users },
-  { id: "roles", label: "Roles & Permissions", icon: ShieldCheck },
-  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "services", label: "Services", icon: LayoutGrid },
-  { id: "mqtt", label: "MQTT / Integrations", icon: Plug },
-  { id: "api", label: "API", icon: KeyRound },
   { id: "security", label: "Security", icon: ShieldCheck },
 ];
 
 export function SettingsPage({ tab: forcedTab }: { tab?: TabId }) {
   const params = useParams<{ tab: string }>();
-  const { user, updateProfile, data, toast } = useApp();
+  const { profile, organization, services, users, invites, isAdmin } = useApp();
   const [tab, setTab] = useState<TabId>((forcedTab ?? (params.tab as TabId) ?? "profile") as TabId);
-  const [copied, setCopied] = useState(false);
-
-  const copy = (t: string) => {
-    navigator.clipboard?.writeText(t).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-    toast({ title: "Copied to clipboard", severity: "success" });
-  };
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -60,255 +51,258 @@ export function SettingsPage({ tab: forcedTab }: { tab?: TabId }) {
       </div>
 
       <div className="min-w-0 flex-1">
-        {tab === "profile" && <ProfileTab user={user} updateProfile={updateProfile} copy={copy} />}
-        {tab === "organization" && <OrganizationTab copy={copy} />}
+        {tab === "profile" && <ProfileTab />}
+        {tab === "organization" && <OrganizationTab />}
         {tab === "users" && <UsersTab />}
-        {tab === "roles" && <RolesTab />}
-        {tab === "notifications" && <NotificationsTab />}
-        {tab === "services" && <ServicesTab data={data} />}
-        {tab === "mqtt" && <MqttTab />}
-        {tab === "api" && <ApiTab copy={copy} />}
-        {tab === "security" && <SecurityTab />}
+        {tab === "services" && <ServicesTab />}
+        {tab === "security" && <SecurityTab isAdmin={isAdmin} />}
       </div>
     </div>
   );
 }
 
-function SettingRow({ icon, label, value, action }: { icon: React.ReactNode; label: string; value: string; action?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-ink-50 pb-3 last:border-0">
-      <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink-100 text-ink-500">{icon}</span>
-        <div>
-          <div className="text-[13px] font-semibold text-ink-800">{label}</div>
-          <div className="font-mono text-xs text-ink-500">{value}</div>
-        </div>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function ProfileTab({ user, updateProfile, copy }: { user: Profile | null; updateProfile: (p: Partial<Profile>) => void; copy: (t: string) => void }) {
-  const [form, setForm] = useState({
-    fullName: user?.fullName ?? "",
-    email: user?.email ?? "",
-    organization: user?.organization ?? "",
-  });
+function ProfileTab() {
+  const { profile, organization } = useApp();
+  if (!profile) return null;
   return (
     <Card>
-      <CardHeader title="Profile" subtitle="Your personal account information" />
-      <CardBody className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Full name">
-            <Input value={form.fullName} onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))} />
-          </Field>
-          <Field label="Work email">
-            <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-          </Field>
-          <Field label="Organization" className="sm:col-span-2">
-            <Input value={form.organization} onChange={(e) => setForm((f) => ({ ...f, organization: e.target.value }))} />
-          </Field>
-        </div>
-        <div className="flex justify-end">
-          <Button onClick={() => updateProfile(form)}>Save changes</Button>
-        </div>
-        <SettingRow icon={<User className="h-4 w-4" />} label="Your user ID" value={user?.id ?? "—"} action={<Button variant="ghost" size="xs" onClick={() => copy(user?.id ?? "")}><Copy className="h-3.5 w-3.5" /></Button>} />
-        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Role" value={user?.role ?? "admin"} />
-      </CardBody>
-    </Card>
-  );
-}
-
-function OrganizationTab({ copy }: { copy: (t: string) => void }) {
-  return (
-    <Card>
-      <CardHeader title="Organization" subtitle="Organization profile and identifiers" />
+      <CardHeader title="Profile" subtitle="Your identity — loaded from Supabase Auth and the profiles table" />
       <CardBody className="space-y-3">
-        <SettingRow icon={<Building2 className="h-4 w-4" />} label="Organization name" value="Casablanca Urban Operations" action={<Button variant="ghost" size="xs">Edit</Button>} />
-        <SettingRow icon={<Wifi className="h-4 w-4" />} label="Slug / subdomain" value="casablanca.citypulse.io" action={<Button variant="ghost" size="xs" onClick={() => copy("casablanca.citypulse.io")}><Copy className="h-3.5 w-3.5" /></Button>} />
-        <SettingRow icon={<LayoutGrid className="h-4 w-4" />} label="Organization ID" value="org_casablanca_001" />
-        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Plan" value="Enterprise · Annual" />
+        <SettingRow icon={<User className="h-4 w-4" />} label="Full name" value={profile.fullName} />
+        <SettingRow icon={<KeyRound className="h-4 w-4" />} label="Email" value={profile.email} />
+        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Role" value={profile.role} />
+        <SettingRow icon={<Building2 className="h-4 w-4" />} label="Organization" value={organization?.name ?? "—"} />
+        <div className="rounded-lg border border-pulse-100 bg-pulse-50 p-3 text-xs leading-relaxed text-pulse-800">
+          Authentication is handled by Supabase Auth (signUp / signInWithPassword / signOut).
+          Passwords are never stored in application tables.
+        </div>
       </CardBody>
     </Card>
   );
 }
 
-const USERS = [
-  { name: "Yassine El Amrani", email: "yassine.elamrani@casablanca-city.ma", role: "admin", status: "Active" },
-  { name: "Ahmed B.", email: "ahmed.b@citypulse.ops", role: "operator", status: "Active" },
-  { name: "Sara K.", email: "sara.k@citypulse.ops", role: "operator", status: "Active" },
-  { name: "Nadia F.", email: "nadia.f@citypulse.ops", role: "supervisor", status: "Inactive" },
-];
+function OrganizationTab() {
+  const { organization, services } = useApp();
+  if (!organization) {
+    return (
+      <Card>
+        <EmptyState title="No organization yet." message="Create or join an organization to activate the platform." className="py-12" />
+      </Card>
+    );
+  }
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader title="Organization" subtitle="Loaded from the organizations table" />
+        <CardBody className="space-y-3">
+          <SettingRow icon={<Building2 className="h-4 w-4" />} label="Name" value={organization.name} />
+          <SettingRow icon={<LayoutGrid className="h-4 w-4" />} label="Slug" value={<span className="font-mono text-xs">{organization.slug}</span>} />
+          <SettingRow icon={<Building2 className="h-4 w-4" />} label="Type" value={organization.type} />
+          {organization.region && <SettingRow icon={<Building2 className="h-4 w-4" />} label="Region" value={organization.region} />}
+          <CopyableRow label="Organization ID" value={organization.id} />
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Enabled services" subtitle="Per-tenant service configuration" />
+        <CardBody className="grid gap-2 sm:grid-cols-2">
+          {SERVICES.map((s) => {
+            const svc = services.find((x) => x.name === s.key);
+            const enabled = svc?.enabled ?? s.connected;
+            return (
+              <div key={s.key} className="flex items-center justify-between rounded-lg border border-ink-100 px-3 py-2.5">
+                <span className="text-[13px] font-semibold text-ink-700">{s.name}</span>
+                <Badge tone={enabled ? "success" : "neutral"} dot>{enabled ? "Enabled" : "Disabled"}</Badge>
+              </div>
+            );
+          })}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
 
 function UsersTab() {
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader title="Users" subtitle="People with access to this workspace" action={<Button size="sm">Invite user</Button>} />
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] text-sm">
-          <thead>
-            <tr className="border-b border-ink-100 bg-ink-50/60 text-left text-[11px] uppercase tracking-widest text-ink-400">
-              <th className="px-5 py-3 font-semibold">User</th>
-              <th className="px-4 py-3 font-semibold">Role</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-ink-50">
-            {USERS.map((u) => (
-              <tr key={u.email}>
-                <td className="px-5 py-3">
-                  <div className="font-semibold text-ink-800">{u.name}</div>
-                  <div className="text-[11px] text-ink-400">{u.email}</div>
-                </td>
-                <td className="px-4 py-3"><Badge tone="info">{u.role}</Badge></td>
-                <td className="px-4 py-3"><Badge tone={u.status === "Active" ? "success" : "offline"} dot>{u.status}</Badge></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
+  const { users, invites, isAdmin, createInvite, revokeInvite, toast } = useApp();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("operator");
+  const [lastCode, setLastCode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-function RolesTab() {
-  const roles = [
-    { name: "Admin", desc: "Full access to every part of the platform and organization settings.", badge: "danger" as const },
-    { name: "Supervisor", desc: "Monitor operations, assign tickets, manage teams.", badge: "warning" as const },
-    { name: "Operator", desc: "Monitor services, receive events, manage assigned tickets.", badge: "info" as const },
-    { name: "Viewer", desc: "Read-only access to dashboards and reports.", badge: "neutral" as const },
-  ];
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {roles.map((r) => (
-        <Card key={r.name}>
-          <CardBody>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-semibold text-ink-900"><ShieldCheck className="h-4 w-4 text-pulse-600" /> {r.name}</div>
-              <Badge tone={r.badge}>{r.name === "Viewer" ? "Read-only" : "Edit"}</Badge>
-            </div>
-            <p className="mt-2 text-[13px] text-ink-500">{r.desc}</p>
-          </CardBody>
-        </Card>
-      ))}
-    </div>
-  );
-}
+  const issue = async () => {
+    setError("");
+    if (!email.includes("@")) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const code = await createInvite(email.trim(), role);
+      setLastCode(code);
+      setEmail("");
+      toast({ title: "Invite created", message: `Code ${code} — share it with the invitee.`, severity: "success" });
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-function NotificationsTab() {
-  const rows = [
-    "Critical events & failures",
-    "AI generated recommendations",
-    "Ticket assignments & updates",
-    "Device offline alerts",
-    "Water leak / anomaly alerts",
-    "Weekly performance digest",
-  ];
   return (
-    <Card>
-      <CardHeader title="Notification preferences" subtitle="Choose which alerts are delivered" />
-      <CardBody className="space-y-2">
-        {rows.map((r) => (
-          <label key={r} className="flex cursor-pointer items-center justify-between rounded-lg border border-ink-100 px-3 py-2.5">
-            <span className="text-sm font-medium text-ink-700">{r}</span>
-            <input type="checkbox" defaultChecked className="h-4 w-4 accent-pulse-600" />
-          </label>
-        ))}
-      </CardBody>
-    </Card>
-  );
-}
-
-function ServicesTab({ data }: { data: AppData }) {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {(["lighting", "water", "waste", "traffic"] as const).map((s) => (
-        <Card key={s}>
-          <CardBody className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-ink-100 font-bold uppercase text-ink-600">{s[0]}</span>
+    <div className="space-y-5">
+      <Card>
+        <CardHeader title="Users" subtitle="Members of your organization (profiles)" />
+        <CardBody className="space-y-2">
+          {users.length === 0 && <EmptyState title="No members yet." className="py-8" />}
+          {users.map((u) => (
+            <div key={u.id} className="flex items-center justify-between rounded-lg border border-ink-100 px-3 py-2.5">
               <div>
-                <div className="text-sm font-semibold text-ink-800">{s[0].toUpperCase() + s.slice(1)}</div>
-                <div className="text-xs text-ink-400">{data.devices.filter((d) => d.service === s).length} devices</div>
+                <div className="text-[13px] font-semibold text-ink-800">{u.fullName}</div>
+                <div className="text-[11px] text-ink-400">{u.email}</div>
               </div>
+              <Badge tone={u.role === "admin" ? "brand" : "neutral"}>{u.role}</Badge>
             </div>
-            <Badge tone="success" dot>Enabled</Badge>
-          </CardBody>
-        </Card>
-      ))}
+          ))}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Invitations" subtitle="Joining requires an admin-issued code bound to the invitee's email." />
+        <CardBody className="space-y-4">
+          {isAdmin ? (
+            <div className="grid gap-3 sm:grid-cols-[1fr_160px_auto] sm:items-end">
+              <Field label="Invite email">
+                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="colleague@city.gov" />
+              </Field>
+              <Field label="Role">
+                <Select value={role} onChange={(e) => setRole(e.target.value)}>
+                  <option value="operator">Operator</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="admin">Admin</option>
+                </Select>
+              </Field>
+              <Button loading={busy} onClick={() => void issue()}>Create invite</Button>
+            </div>
+          ) : (
+            <p className="text-sm text-ink-500">Only organization admins can issue invitations.</p>
+          )}
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
+          {lastCode && (
+            <div className="rounded-lg border border-live-200 bg-live-50 px-3 py-2 text-sm text-live-800">
+              Invite code: <span className="font-mono font-bold">{lastCode}</span> — valid 7 days, bound to the invited email.
+            </div>
+          )}
+
+          <div className="space-y-2 border-t border-ink-100 pt-3">
+            {invites.length === 0 && <p className="text-xs text-ink-400">No invites issued yet.</p>}
+            {invites.map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-semibold text-ink-800">
+                    <span className="font-mono">{inv.code}</span> · {inv.email}
+                  </div>
+                  <div className="text-[11px] text-ink-400">role: {inv.role} · created {timeAgo(inv.createdAt)}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge tone={inv.status === "PENDING" ? "warning" : inv.status === "ACCEPTED" ? "success" : "neutral"}>{inv.status}</Badge>
+                  {isAdmin && inv.status === "PENDING" && (
+                    <Button variant="ghost" size="xs" onClick={() => void revokeInvite(inv.id)}>Revoke</Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }
 
-function MqttTab() {
-  const endpoints = [
-    { k: "MQTT broker", v: "mqtts://broker.citypulse.cloud:8883" },
-    { k: "Topic prefix", v: "citypulse/{org}/{service}/{device}/telemetry" },
-    { k: "MQTT username", v: "org_casablanca_001" },
-    { k: "Protocol", v: "MQTT 3.1.1 over TLS" },
-  ];
+function ServicesTab() {
+  const { services, devices } = useApp();
   return (
     <Card>
-      <CardHeader title="MQTT / Integrations" subtitle="Device connectivity and event ingestion" />
-      <CardBody className="space-y-3">
-        {endpoints.map((e) => (
-          <div key={e.k} className="flex items-center justify-between gap-3 border-b border-ink-50 pb-3 last:border-0">
-            <div>
-              <div className="text-[13px] font-semibold text-ink-800">{e.k}</div>
-              <div className="font-mono text-xs text-ink-500">{e.v}</div>
+      <CardHeader title="Services" subtitle="CITYPULSE supports four city services — Lighting is live today" />
+      <CardBody className="grid gap-3 sm:grid-cols-2">
+        {SERVICES.map((s) => {
+          const svc = services.find((x) => x.name === s.key);
+          const count = devices.filter((d) => d.service === s.key).length;
+          return (
+            <div key={s.key} className="flex items-center justify-between rounded-xl border border-ink-100 p-4">
+              <div className="flex items-center gap-3">
+                <ServiceIconBadge service={s.key} size="sm" />
+                <div>
+                  <div className="text-sm font-bold text-ink-900">{s.name}</div>
+                  <div className="text-xs text-ink-400">
+                    {count > 0 ? `${count} registered device${count > 1 ? "s" : ""}` : svc?.enabled ? "Enabled — no devices yet" : "Not enabled"}
+                  </div>
+                </div>
+              </div>
+              <Badge tone={s.connected ? "success" : "neutral"} dot>{s.connected ? "Connected" : "Coming soon"}</Badge>
             </div>
-            <Badge tone={e.k === "MQTT broker" ? "success" : "neutral"} dot>{e.k === "MQTT broker" ? "Connected" : "Info"}</Badge>
-          </div>
-        ))}
-        <div className="rounded-lg border border-pulse-100 bg-pulse-50 p-3 text-sm text-pulse-800">
-          ESP32 devices connect over TLS and publish to their per-device topic. Commands are delivered on the reciprocal command channel.
-        </div>
+          );
+        })}
       </CardBody>
     </Card>
   );
 }
 
-function ApiTab({ copy }: { copy: (t: string) => void }) {
-  const key = "cp_live_8f2a9c71d04e5b6a";
+function SecurityTab({ isAdmin }: { isAdmin: boolean }) {
+  const { signOut } = useApp();
   return (
     <Card>
-      <CardHeader title="API access" subtitle="Programmatic access to your CITYPULSE data" />
-      <CardBody className="space-y-4">
-        <div>
-          <div className="mb-1.5 text-[13px] font-semibold text-ink-700">API key</div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded-lg border border-ink-100 bg-ink-50 px-3 py-2.5 text-xs text-ink-700">{key}</code>
-            <Button variant="outline" onClick={() => copy(key)}><Copy className="h-4 w-4" /></Button>
-          </div>
-        </div>
-        <div className="rounded-lg bg-ink-950 p-4 text-xs text-ink-300">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-pulse-300">Example</div>
-          <pre className="mt-2 font-mono text-[11px]">{`GET /v1/organizations/{org}/events?limit=10`}{"\n"}{`Authorization: Bearer ${key.slice(0, 8)}…`}</pre>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-function SecurityTab() {
-  return (
-    <Card>
-      <CardHeader title="Security" subtitle="Sign-in and multi-factor settings" />
-      <CardBody className="space-y-2">
-        {["Two-factor authentication", "Single sign-on (SAML / OIDC)", "Session timeout", "IP allow-listing"].map((r) => (
-          <label key={r} className="flex cursor-pointer items-center justify-between rounded-lg border border-ink-100 px-3 py-2.5">
-            <span className="text-sm font-medium text-ink-700">{r}</span>
-            <input type="checkbox" defaultChecked className="h-4 w-4 accent-pulse-600" />
-          </label>
-        ))}
+      <CardHeader title="Security" subtitle="Multi-tenant isolation & session management" />
+      <CardBody className="space-y-3">
+        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Row Level Security" value="Enforced on every table via org policies" />
+        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Organization isolation" value="Supabase RLS — never client-side filtering only" />
+        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Auth provider" value="Supabase Auth" />
+        <SettingRow icon={<ShieldCheck className="h-4 w-4" />} label="Your role" value={<Badge tone={isAdmin ? "brand" : "neutral"}>{isAdmin ? "Admin" : "Member"}</Badge>} />
         <div className="flex justify-end pt-2">
-          <Button variant="outline" size="sm" onClick={() => (window.location.hash = "#/login")}>
-            <ArrowLeft className="h-4 w-4" /> Sign out
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => void signOut()}>Sign out</Button>
         </div>
       </CardBody>
     </Card>
   );
 }
 
+function SettingRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-ink-50 pb-3 last:border-0 last:pb-0">
+      <div className="flex items-center gap-2 text-ink-500">
+        {icon}
+        <span className="text-[13px] font-semibold">{label}</span>
+      </div>
+      <div className="text-right text-[13px] font-medium text-ink-800">{value}</div>
+    </div>
+  );
+}
+
+function CopyableRow({ label, value }: { label: string; value: string }) {
+  const { toast } = useApp();
+  const [copied, setCopied] = useState(false);
+  return (
+    <SettingRow
+      icon={<ShieldCheck className="h-4 w-4" />}
+      label={label}
+      value={
+        <span className="inline-flex items-center gap-1.5">
+          <span className="max-w-[220px] truncate font-mono text-xs">{value}</span>
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(value).catch(() => {});
+              setCopied(true);
+              toast({ title: "Copied to clipboard", severity: "success" });
+              setTimeout(() => setCopied(false), 1500);
+            }}
+            className="rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+            aria-label={`Copy ${label}`}
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-live-600" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
+        </span>
+      }
+    />
+  );
+}

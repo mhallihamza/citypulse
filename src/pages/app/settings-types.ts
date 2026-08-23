@@ -1,0 +1,1 @@
+export type TabId = "profile" | "organization" | "users" | "services" | "security";
