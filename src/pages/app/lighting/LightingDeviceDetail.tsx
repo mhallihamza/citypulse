@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import { ArrowLeft, Moon, Power, Sun, Ticket as TicketIcon, Zap } from "lucide-react";
@@ -39,6 +39,17 @@ export function LightingDeviceDetail() {
   const deviceEvents = useMemo(() => events.filter((e) => e.deviceId === deviceId), [events, deviceId]);
   const deviceTickets = useMemo(() => tickets.filter((t) => t.deviceId === deviceId), [tickets, deviceId]);
   const deviceCommands = useMemo(() => commands.filter((c) => c.deviceId === deviceId), [commands, deviceId]);
+  // Newest command for this device (single source of truth). `commands` is already
+  // ordered by device_commands.requested_at DESC (fetchCommands + Realtime prepend),
+  // so the first filtered row is the latest command (the equivalent of
+  // .eq("device_id", deviceId).order("requested_at", { ascending: false }).limit(1)).
+  const latestCommand = deviceCommands.length > 0 ? deviceCommands[0] : null;
+
+  useEffect(() => {
+    if (latestCommand) {
+      console.log("Latest device command (real device_commands row):", latestCommand.command, latestCommand.status, latestCommand.id);
+    }
+  }, [latestCommand]);
 
   if (!device) {
     return (
@@ -131,8 +142,18 @@ export function LightingDeviceDetail() {
           <div>
             <div className="text-[11px] font-bold uppercase tracking-widest text-ink-400">Commands · {device.deviceKey}</div>
             <p className="mt-1 max-w-sm text-[11px] leading-snug text-ink-400">
-              Commands are stored in <span className="font-semibold">device_commands</span> with status{" "}
-              <Badge tone="warning">PENDING</Badge> until Fusion AI confirms delivery. The UI never fakes a result.
+              {latestCommand ? (
+                <>
+                  Latest command <span className="font-mono font-semibold text-ink-800">{latestCommand.command}</span>{" "}
+                  <CommandStatusBadge status={latestCommand.status} /> — real rows from{" "}
+                  <span className="font-semibold">device_commands</span>, refreshed via Supabase Realtime.
+                </>
+              ) : (
+                <>
+                  Commands are stored in <span className="font-semibold">device_commands</span>. No command sent to
+                  this device yet.
+                </>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
