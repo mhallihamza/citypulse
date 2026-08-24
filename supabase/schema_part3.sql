@@ -353,3 +353,46 @@ begin
    where id = p_invite_id
      and org_id = public.org_org_id(auth.uid());
 end $$;
+-- ============================================================================
+-- SUPABASE REALTIME — enable Postgres changes for the live dashboard tables.
+-- The React dashboard subscribes with `postgres_changes` so device states,
+-- commands, events, tickets and notifications update WITHOUT a page refresh.
+-- In Supabase a table only emits change events once it is added to the
+-- `supabase_realtime` publication (all tables exist after schema_part2.sql).
+-- Each statement is guarded so re-running this file is safe.
+-- ============================================================================
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'devices') then
+    alter publication supabase_realtime add table public.devices;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'lighting_states') then
+    alter publication supabase_realtime add table public.lighting_states;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'events') then
+    alter publication supabase_realtime add table public.events;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'device_commands') then
+    alter publication supabase_realtime add table public.device_commands;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'tickets') then
+    alter publication supabase_realtime add table public.tickets;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notifications') then
+    alter publication supabase_realtime add table public.notifications;
+  end if;
+end $$;

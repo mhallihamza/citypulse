@@ -60,6 +60,10 @@ export function LightingDeviceDetail() {
         : "offline"
     : device.status;
 
+  // Connection source of truth: lighting_states.online when a live row exists,
+  // otherwise devices.connection (mapped to device.online).
+  const isOnline = state ? state.online : device.online;
+
   const doCommand = async (command: string, payload: Record<string, unknown> = {}) => {
     setBusy(true);
     try {
@@ -97,7 +101,7 @@ export function LightingDeviceDetail() {
 
       {/* Live state grid — real lighting_states values */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCell label="Online" value={state ? (state.online ? "Yes" : "No") : "Unknown"} tone={state?.online ? "text-live-600" : "text-ink-500"} />
+        <StatCell label="Online" value={isOnline ? "Yes" : "No"} tone={isOnline ? "text-live-600" : "text-ink-500"} />
         <StatCell label="Mode" value={<ModePill mode={state?.mode ?? device.mode} />} />
         <StatCell label="Brightness" value={state ? `${state.brightness}%` : "—"} />
         <StatCell label="Lux" value={state?.lux != null ? `${Number(state.lux).toFixed(1)} lx` : "—"} />

@@ -102,7 +102,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const REALTIME_TABLES = ["lighting_states", "events", "device_commands", "tickets", "notifications"];
+const REALTIME_TABLES = ["devices", "lighting_states", "events", "device_commands", "tickets", "notifications"];
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
@@ -332,18 +332,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const handleRealtime = useCallback(
     (table: string, row: Record<string, unknown>, event: "INSERT" | "UPDATE" | "DELETE") => {
       setRealtimeOnline(true);
-      const nowMs = Date.now();
 
       if (table === "lighting_states") {
         const s = api.mapState(row as never);
-        setStates((prev) => {
-          const prevRow = prev[s.deviceId] ?? s;
+        if (event === "DELETE") {
+          setStates((prev) => {
+            const { [s.deviceId]: _removed, ...rest } = prev;
+            return rest;
+          });
+        } else {
+          // postgres_changes delivers the complete new row. Honor the DB values
+          // (mode / online / brightness / lux / last_seen) instead of inferring
+          // the connection state client-side.
+          setStates((prev) => ({ ...prev, [s.deviceId]: s }));
+        }
+        return;
+      }
+
+      if (table === "devices") {
+        const id = (row as { id?: string }).id ?? "";
+        if (event === "DELETE") {
+          setDevices((prev) => prev.filter((d) => d.id !== id));
+          return;
+        }
+        const dev = api.mapDevice(row as never, null);
+        setDevices((prev) => {
+          const existing = prev.find((d) => d.id === dev.id);
+          // The realtime payload does not carry the joined `locations` fields, so
+          // preserve the registry's existing zone/coordinates; new rows fall back
+          // to mapDevice defaults until a full refresh.
           const merged = {
-            ...prevRow,
-            ...s,
-            online: s.online || (s.lastSeen ? nowMs - s.lastSeen < 90_000 : prevRow.online),
+            ...(existing ?? dev),
+            ...dev,
+            zone: existing?.zone ?? dev.zone,
+            district: existing?.district ?? dev.district,
+            locationLabel: existing?.locationLabel ?? dev.locationLabel,
+            latitude: existing?.latitude ?? dev.latitude,
+            longitude: existing?.longitude ?? dev.longitude,
           };
-          return { ...prev, [s.deviceId]: merged };
+          const exists = prev.some((d) => d.id === dev.id);
+          return exists ? prev.map((d) => (d.id === dev.id ? merged : d)) : [merged, ...prev];
         });
         return;
       }
