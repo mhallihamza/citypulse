@@ -21,6 +21,7 @@ import { CityMapPage } from "@/pages/app/CityMapPage";
 import { EventsPage } from "@/pages/app/EventsPage";
 import { TicketsPage } from "@/pages/app/TicketsPage";
 import { TicketDetail } from "@/pages/app/TicketDetail";
+import { OperatorsPage } from "@/pages/app/OperatorsPage";
 import { AiInsightsPage } from "@/pages/app/AiInsightsPage";
 import { NotificationsPage } from "@/pages/app/NotificationsPage";
 import { SettingsPage } from "@/pages/app/SettingsPage";
@@ -190,6 +191,7 @@ export default function App() {
           <Route path="events" element={<EventsPage />} />
           <Route path="tickets" element={<TicketsPage />} />
           <Route path="tickets/:ticketId" element={<TicketDetail />} />
+          <Route path="operators" element={<OperatorsPage />} />
 
           {/* Intelligence */}
           <Route path="ai-insights" element={<AiInsightsPage />} />

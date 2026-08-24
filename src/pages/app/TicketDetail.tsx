@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, BrainCircuit, Send } from "lucide-react";
+import { ArrowLeft, BrainCircuit, Send, UserPlus, X } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import * as api from "@/lib/api";
 import { Card, CardBody, CardHeader, PageHeader } from "@/components/ui/Card";
@@ -10,12 +10,12 @@ import { Textarea } from "@/components/ui/Form";
 import { EmptyState } from "@/components/ui/Modal";
 import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
 import { timeAgo } from "@/lib/format";
-import type { TicketComment, TicketStatus } from "@/lib/types";
+import { SERVICE_LABEL, type Operator, type TicketAssignment, type TicketComment, type TicketStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function TicketDetail() {
   const { ticketId = "" } = useParams();
-  const { tickets, devices, users, now, setTicketStatus, assignTicket, addTicketComment, toast } = useApp();
+  const { tickets, devices, users, operators, ticketAssignments, now, setTicketStatus, assignTicket, assignTicketOperator, removeTicketOperator, addTicketComment, toast } = useApp();
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState<TicketComment[]>([]);
   const [sending, setSending] = useState(false);
@@ -46,6 +46,21 @@ export function TicketDetail() {
       </div>
     );
   }
+
+  // Field-operator assignments for this ticket — fetched through the
+  // ticket_assignments -> operators relationship (never duplicated into tickets).
+  const ticketAssignmentsForTicket = ticketAssignments.filter((a) => a.ticketId === ticket.id);
+  const assignedOperators = ticketAssignmentsForTicket
+    .map((a): { assignment: TicketAssignment; operator: Operator } | null => {
+      const operator = operators.find((o) => o.id === a.operatorId);
+      return operator ? { assignment: a, operator } : null;
+    })
+    .filter((x): x is { assignment: TicketAssignment; operator: Operator } => x !== null);
+  // Operators not yet assigned to this ticket; matching-service operators sorted
+  // first as preferred (cross-service assignment is still allowed for MVP).
+  const candidateOperators = operators
+    .filter((o) => !ticketAssignmentsForTicket.some((a) => a.operatorId === o.id))
+    .sort((a, b) => Number(b.service === ticket.service) - Number(a.service === ticket.service));
 
   const submitComment = async () => {
     if (!comment.trim()) return;
@@ -190,6 +205,60 @@ export function TicketDetail() {
                   {ticket.assignedTo === u.id && <Badge tone="info">Assigned</Badge>}
                 </button>
               ))}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Field Operators" subtitle="Assignments via ticket_assignments → operators" />
+            <CardBody className="space-y-3">
+              {assignedOperators.length === 0 && (
+                <EmptyState title="No field operators assigned." message="Assign a field operator from your crew below." className="py-5" />
+              )}
+              {assignedOperators.map(({ assignment, operator }) => (
+                <div key={assignment.id} className="flex items-center gap-3 rounded-lg border border-pulse-200 bg-pulse-50 px-3 py-2">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink-900 text-[11px] font-bold text-white">
+                    {operator.name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-ink-800">{operator.name}</span>
+                    <span className="block truncate text-[11px] text-ink-400">
+                      {operator.role}
+                      {operator.service ? ` · ${SERVICE_LABEL[operator.service]}` : ""} · {operator.status}
+                    </span>
+                  </span>
+                  <Button variant="ghost" size="xs" className="!text-red-600 hover:!bg-red-50" onClick={() => void removeTicketOperator(assignment.id)}>
+                    <X className="h-3.5 w-3.5" /> Unassign
+                  </Button>
+                </div>
+              ))}
+
+              <div className="border-t border-ink-100 pt-3">
+                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-widest text-ink-400">Assign operator</div>
+                {candidateOperators.length === 0 && <p className="text-xs text-ink-400">No unassigned operators available.</p>}
+                <div className="max-h-56 space-y-1.5 overflow-y-auto pr-0.5">
+                  {candidateOperators.map((op) => {
+                    const preferred = op.service === ticket.service;
+                    return (
+                      <div key={op.id} className="flex items-center gap-3 rounded-lg border border-ink-100 px-3 py-2 transition-colors hover:border-pulse-200">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink-100 text-[11px] font-bold text-ink-700">
+                          {op.name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-semibold text-ink-800">{op.name}</span>
+                          <span className="block truncate text-[11px] text-ink-400">
+                            {op.role}
+                            {op.service ? ` · ${SERVICE_LABEL[op.service]}` : ""}
+                          </span>
+                        </span>
+                        {preferred && <Badge tone="success">Preferred</Badge>}
+                        <Button variant="outline" size="xs" onClick={() => void assignTicketOperator(ticket.id, op.id)}>
+                          <UserPlus className="h-3.5 w-3.5" /> Assign
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </CardBody>
           </Card>
         </div>

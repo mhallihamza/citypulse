@@ -4,6 +4,7 @@ import {
   Bell,
   BellRing,
   CheckCheck,
+  HardHat,
   LayoutDashboard,
   Lightbulb,
   LogOut,
@@ -45,6 +46,7 @@ const NAV_SECTIONS: {
     items: [
       { to: "/app/events", label: "Events", icon: Bell },
       { to: "/app/tickets", label: "Tickets", icon: Ticket },
+      { to: "/app/operators", label: "Operators", icon: HardHat },
     ],
   },
   {

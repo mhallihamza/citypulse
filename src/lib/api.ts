@@ -13,11 +13,13 @@ import type {
   Location as OrgLocation,
   Organization,
   OrgService,
+  Operator,
   Profile,
   Role,
   ServiceId,
   TelemetrySample,
   Ticket,
+  TicketAssignment,
   TicketComment,
   TicketPriority,
   TicketStatus,
@@ -192,6 +194,28 @@ interface InviteRow {
   created_at: string;
   expires_at: string;
 }
+interface OperatorRow {
+  id: string;
+  org_id: string;
+  name: string;
+  role: string;
+  email: string | null;
+  phone: string | null;
+  service: ServiceId | null;
+  status: string;
+  current_tickets: number;
+  resolved_total: number;
+  avg_resolution_min: number;
+  last_activity: string | null;
+}
+interface TicketAssignmentRow {
+  id: string;
+  org_id: string;
+  ticket_id: string;
+  operator_id: string | null;
+  assigned_by: string | null;
+  assigned_at: string;
+}
 
 // ---------------------------------------------------------------------------
 // Mappers
@@ -364,6 +388,34 @@ export function mapInvite(row: InviteRow): { id: string; code: string; email: st
   };
 }
 
+export function mapOperator(row: OperatorRow): Operator {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    name: row.name,
+    role: row.role,
+    email: row.email,
+    phone: row.phone,
+    service: row.service,
+    status: row.status,
+    currentTickets: row.current_tickets ?? 0,
+    resolvedTotal: row.resolved_total ?? 0,
+    avgResolutionMin: row.avg_resolution_min ?? 0,
+    lastActivity: toMs(row.last_activity),
+  };
+}
+
+export function mapTicketAssignment(row: TicketAssignmentRow): TicketAssignment {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    ticketId: row.ticket_id,
+    operatorId: row.operator_id,
+    assignedBy: row.assigned_by,
+    assignedAt: Date.parse(row.assigned_at),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Reads (all organization-scoped)
 // ---------------------------------------------------------------------------
@@ -517,6 +569,20 @@ export async function fetchInvites(orgId: string | null): Promise<ReturnType<typ
   const { data, error } = await supabase.from("organization_invites").select("*").eq("org_id", orgId).order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r: InviteRow) => mapInvite(r));
+}
+
+export async function fetchOperators(orgId: string | null): Promise<Operator[]> {
+  if (!supabase || !orgId) return [];
+  const { data, error } = await supabase.from("operators").select("*").eq("org_id", orgId).order("name", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r: OperatorRow) => mapOperator(r));
+}
+
+export async function fetchTicketAssignments(orgId: string | null): Promise<TicketAssignment[]> {
+  if (!supabase || !orgId) return [];
+  const { data, error } = await supabase.from("ticket_assignments").select("*").eq("org_id", orgId).order("assigned_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r: TicketAssignmentRow) => mapTicketAssignment(r));
 }
 
 // ---------------------------------------------------------------------------
@@ -679,6 +745,62 @@ export async function updateTicket(
 ): Promise<void> {
   if (!supabase) throw new Error("Supabase is not configured");
   const { error } = await supabase.from("tickets").update(patch).eq("id", ticketId);
+  if (error) throw error;
+}
+
+export interface NewOperatorInput {
+  orgId: string;
+  name: string;
+  role?: string;
+  email?: string | null;
+  phone?: string | null;
+  service?: Operator["service"];
+  status?: string;
+}
+
+export async function insertOperator(input: NewOperatorInput): Promise<void> {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { error } = await supabase.from("operators").insert({
+    org_id: input.orgId,
+    name: input.name,
+    role: input.role ?? "field_operator",
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    service: input.service ?? null,
+    status: input.status ?? "available",
+  });
+  if (error) throw error;
+}
+
+export async function updateOperator(
+  operatorId: string,
+  patch: Partial<{ name: string; role: string; email: string | null; phone: string | null; service: Operator["service"]; status: string }>
+): Promise<void> {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { error } = await supabase.from("operators").update(patch).eq("id", operatorId);
+  if (error) throw error;
+}
+
+export async function deleteOperator(operatorId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { error } = await supabase.from("operators").delete().eq("id", operatorId);
+  if (error) throw error;
+}
+
+export async function assignTicketOperator(orgId: string, ticketId: string, operatorId: string, assignedBy: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { error } = await supabase.from("ticket_assignments").insert({
+    org_id: orgId,
+    ticket_id: ticketId,
+    operator_id: operatorId,
+    assigned_by: assignedBy,
+  });
+  if (error) throw error;
+}
+
+export async function removeTicketAssignment(assignmentId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase is not configured");
+  const { error } = await supabase.from("ticket_assignments").delete().eq("id", assignmentId);
   if (error) throw error;
 }
 

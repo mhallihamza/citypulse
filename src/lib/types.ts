@@ -172,6 +172,36 @@ export interface DeviceCommand {
   error: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Field operators & ticket assignments
+// ---------------------------------------------------------------------------
+
+/** A field operator / work crew (public.operators row). */
+export interface Operator {
+  id: string;
+  orgId: string;
+  name: string;
+  role: string;
+  email: string | null;
+  phone: string | null;
+  service: ServiceId | null;
+  status: "available" | "busy" | "offline" | string;
+  currentTickets: number;
+  resolvedTotal: number;
+  avgResolutionMin: number;
+  lastActivity: number | null;
+}
+
+/** Assignment of a field operator to a ticket (public.ticket_assignments row). */
+export interface TicketAssignment {
+  id: string;
+  orgId: string;
+  ticketId: string;
+  operatorId: string | null;
+  assignedBy: string | null;
+  assignedAt: number;
+}
+
 export interface AppNotification {
   id: string;
   severity: Severity;

@@ -124,6 +124,11 @@ create policy "operators: org scope" on operators
   for select using (org_id = public.org_org_id(auth.uid()));
 create policy "operators: org insert" on operators
   for insert with check (org_id = public.org_org_id(auth.uid()));
+create policy "operators: org update" on operators
+  for update using (org_id = public.org_org_id(auth.uid()))
+  with check (org_id = public.org_org_id(auth.uid()));
+create policy "operators: org delete" on operators
+  for delete using (org_id = public.org_org_id(auth.uid()));
 
 -- --------
 -- Events
@@ -151,6 +156,8 @@ create policy "assignments: org scope" on ticket_assignments
   for select using (org_id = public.org_org_id(auth.uid()));
 create policy "assignments: org insert" on ticket_assignments
   for insert with check (org_id = public.org_org_id(auth.uid()));
+create policy "assignments: org delete" on ticket_assignments
+  for delete using (org_id = public.org_org_id(auth.uid()));
 
 create policy "comments: org scope" on ticket_comments
   for select using (org_id = public.org_org_id(auth.uid()));
@@ -399,5 +406,17 @@ end $$;
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'device_telemetry') then
     alter publication supabase_realtime add table public.device_telemetry;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'operators') then
+    alter publication supabase_realtime add table public.operators;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'ticket_assignments') then
+    alter publication supabase_realtime add table public.ticket_assignments;
   end if;
 end $$;

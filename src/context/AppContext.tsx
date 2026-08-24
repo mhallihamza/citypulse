@@ -21,10 +21,12 @@ import type {
   Organization,
   OrgInvite,
   OrgService,
+  Operator,
   Profile,
   ServiceId,
   TelemetrySample,
   Ticket,
+  TicketAssignment,
   TicketPriority,
   TicketStatus,
 } from "@/lib/types";
@@ -66,6 +68,8 @@ interface AppContextValue {
   locations: Location[];
   users: Profile[];
   invites: OrgInvite[];
+  operators: Operator[];
+  ticketAssignments: TicketAssignment[];
 
   now: number;
   toasts: Toast[];
@@ -90,6 +94,11 @@ interface AppContextValue {
   setTicketStatus: (ticketId: string, status: TicketStatus) => Promise<void>;
   assignTicket: (ticketId: string, userId: string) => Promise<void>;
   addTicketComment: (ticketId: string, body: string) => Promise<void>;
+  createOperator: (input: Omit<api.NewOperatorInput, "orgId">) => Promise<void>;
+  updateOperator: (operatorId: string, patch: Partial<{ name: string; role: string; email: string | null; phone: string | null; service: ServiceId | null; status: string }>) => Promise<void>;
+  deleteOperator: (operatorId: string) => Promise<void>;
+  assignTicketOperator: (ticketId: string, operatorId: string) => Promise<void>;
+  removeTicketOperator: (assignmentId: string) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   acknowledgeInsight: (id: string) => Promise<void>;
@@ -102,7 +111,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const REALTIME_TABLES = ["devices", "lighting_states", "device_telemetry", "events", "device_commands", "tickets", "notifications"];
+const REALTIME_TABLES = ["devices", "lighting_states", "device_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
@@ -125,6 +134,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [insights, setInsights] = useState<AiInsight[]>([]);
   const [commands, setCommands] = useState<DeviceCommand[]>([]);
+  const [operators, setOperators] = useState<Operator[]>([]);
+  const [ticketAssignments, setTicketAssignments] = useState<TicketAssignment[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
   const [invites, setInvites] = useState<OrgInvite[]>([]);
@@ -137,6 +148,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const ticketsRef = useRef<Ticket[]>([]);
   const notificationsRef = useRef<AppNotification[]>([]);
   const commandsRef = useRef<DeviceCommand[]>([]);
+  const operatorsRef = useRef<Operator[]>([]);
+  const assignmentsRef = useRef<TicketAssignment[]>([]);
 
   const toast = useCallback((t: Omit<Toast, "id">) => {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -174,6 +187,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     commandsRef.current = commands;
   }, [commands]);
+  useEffect(() => {
+    operatorsRef.current = operators;
+  }, [operators]);
+  useEffect(() => {
+    assignmentsRef.current = ticketAssignments;
+  }, [ticketAssignments]);
 // ----------------------------------------------------------------
   // Hydration & data refresh
   // ----------------------------------------------------------------
@@ -195,6 +214,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotifications([]);
     setInsights([]);
     setCommands([]);
+    setOperators([]);
+    setTicketAssignments([]);
     setLocations([]);
     setUsers([]);
     setInvites([]);
@@ -238,7 +259,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !org) return;
     setLoadingData(true);
     try {
-      const [devs, st, evs, tks, nts, ins, cmds, locs, orgUsers, inv] = await Promise.all([
+      const [devs, st, evs, tks, nts, ins, cmds, ops, asgs, locs, orgUsers, inv] = await Promise.all([
         api.fetchDevices(org),
         api.fetchLightingStates(org),
         api.fetchEvents(org),
@@ -246,6 +267,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         api.fetchNotifications(org),
         api.fetchInsights(org),
         api.fetchCommands(org),
+        api.fetchOperators(org),
+        api.fetchTicketAssignments(org),
         api.fetchLocations(org),
         api.fetchOrgUsers(org),
         api.fetchInvites(org),
@@ -271,6 +294,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setNotifications(nts);
       setInsights(ins);
       setCommands(commandsJoined);
+      setOperators(ops);
+      setTicketAssignments(asgs);
       setLocations(locs);
       setUsers(orgUsers);
       setInvites(inv);
@@ -391,6 +416,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
             return { ...prev, [deviceId]: [...arr, s].slice(-120) };
           });
         }
+        return;
+      }
+
+      if (table === "operators") {
+        const opId = (row as { id?: string }).id ?? "";
+        if (event === "DELETE") {
+          setOperators((prev) => prev.filter((o) => o.id !== opId));
+          return;
+        }
+        const op = api.mapOperator(row as never);
+        setOperators((prev) => {
+          const exists = prev.some((o) => o.id === op.id);
+          return exists ? prev.map((o) => (o.id === op.id ? { ...o, ...op } : o)) : [op, ...prev].sort((a, b) => a.name.localeCompare(b.name));
+        });
+        return;
+      }
+
+      if (table === "ticket_assignments") {
+        const a = api.mapTicketAssignment(row as never);
+        if (event === "DELETE") {
+          setTicketAssignments((prev) => prev.filter((x) => x.id !== a.id));
+          return;
+        }
+        setTicketAssignments((prev) => {
+          if (prev.some((x) => x.id === a.id)) return prev;
+          return [a, ...prev];
+        });
         return;
       }
 
@@ -606,6 +658,56 @@ const setTicketStatus = useCallback(
     [profile, toast]
   );
 
+  const createOperator = useCallback(
+    async (input: Omit<api.NewOperatorInput, "orgId">) => {
+      const org = orgIdRef.current;
+      if (!org) throw new Error("No organization on this account.");
+      await api.insertOperator({ ...input, orgId: org });
+      await refreshAll();
+      toast({ title: "Operator created", message: input.name, severity: "success" });
+    },
+    [refreshAll, toast]
+  );
+
+  const updateOperator = useCallback(
+    async (operatorId: string, patch: Partial<{ name: string; role: string; email: string | null; phone: string | null; service: ServiceId | null; status: string }>) => {
+      await api.updateOperator(operatorId, { ...patch, service: patch.service ?? null });
+      await refreshAll();
+      toast({ title: "Operator updated", severity: "success" });
+    },
+    [refreshAll, toast]
+  );
+
+  const deleteOperator = useCallback(
+    async (operatorId: string) => {
+      await api.deleteOperator(operatorId);
+      await refreshAll();
+      toast({ title: "Operator deleted", severity: "success" });
+    },
+    [refreshAll, toast]
+  );
+
+  const assignTicketOperator = useCallback(
+    async (ticketId: string, operatorId: string) => {
+      const org = orgIdRef.current;
+      if (!org) throw new Error("No organization on this account.");
+      await api.assignTicketOperator(org, ticketId, operatorId, profile?.fullName ?? "System");
+      await refreshAll();
+      const op = operatorsRef.current.find((o) => o.id === operatorId);
+      toast({ title: "Operator assigned", message: op?.name, severity: "success" });
+    },
+    [profile, refreshAll, toast]
+  );
+
+  const removeTicketOperator = useCallback(
+    async (assignmentId: string) => {
+      await api.removeTicketAssignment(assignmentId);
+      await refreshAll();
+      toast({ title: "Operator unassigned", severity: "info" });
+    },
+    [refreshAll, toast]
+  );
+
   const markNotificationRead = useCallback(async (id: string) => {
     await api.markNotificationRead(id);
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
@@ -685,6 +787,8 @@ const setTicketStatus = useCallback(
     locations,
     users,
     invites,
+    operators,
+    ticketAssignments,
     now,
     toasts,
     toast,
@@ -704,6 +808,11 @@ const setTicketStatus = useCallback(
     setTicketStatus,
     assignTicket,
     addTicketComment,
+    createOperator,
+    updateOperator,
+    deleteOperator,
+    assignTicketOperator,
+    removeTicketOperator,
     markNotificationRead,
     markAllNotificationsRead,
     acknowledgeInsight,
