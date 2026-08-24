@@ -102,7 +102,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const REALTIME_TABLES = ["devices", "lighting_states", "events", "device_commands", "tickets", "notifications"];
+const REALTIME_TABLES = ["devices", "lighting_states", "device_telemetry", "events", "device_commands", "tickets", "notifications"];
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
@@ -373,6 +373,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const exists = prev.some((d) => d.id === dev.id);
           return exists ? prev.map((d) => (d.id === dev.id ? merged : d)) : [merged, ...prev];
         });
+        return;
+      }
+
+      if (table === "device_telemetry") {
+        // Append-only log table — listen to INSERTs. postgres_changes delivers the
+        // complete new row, so map it directly into the per-device sample list.
+        if (event === "INSERT") {
+          const deviceId = (row as { device_id?: string }).device_id ?? "";
+          if (!deviceId) return;
+          const s = api.mapTelemetry(row as never);
+          setTelemetry((prev) => {
+            const arr = prev[deviceId] ?? [];
+            // Deduplicate by timestamp so a redelivered / race-condition INSERT
+            // (initial fetch vs realtime) never appends a duplicate row.
+            if (arr.some((x) => x.ts === s.ts)) return prev;
+            return { ...prev, [deviceId]: [...arr, s].slice(-120) };
+          });
+        }
         return;
       }
 
