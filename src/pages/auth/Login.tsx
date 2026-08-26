@@ -57,7 +57,7 @@ export function AuthLeftPanel() {
  * no stored passwords, no bypasses.
  */
 export function Login() {
-  const { signIn } = useApp();
+  const { signIn, authUser, booting } = useApp();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -78,6 +78,15 @@ export function Login() {
       window.history.replaceState({}, "", window.location.pathname + window.location.search);
     }
   }, []);
+
+  // After an email-confirmation link lands here, supabase-js consumes the
+  // #access_token fragment and signs the user in automatically. Continue into
+  // the platform (users without an organization are routed to /onboarding).
+  useEffect(() => {
+    if (!booting && authUser) {
+      navigate("/app", { replace: true });
+    }
+  }, [authUser, booting, navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
