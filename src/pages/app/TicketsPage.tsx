@@ -11,7 +11,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Modal";
 import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
 import { timeAgo } from "@/lib/format";
-import type { ServiceId, Ticket, TicketPriority, TicketStatus } from "@/lib/types";
+import { SERVICE_LABEL, type ServiceId, type Ticket, type TicketPriority, type TicketStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -30,7 +30,7 @@ function StatusPill({ status }: { status: TicketStatus }) {
  * Tickets — real rows from public.tickets. Authorized users can create,
  * assign, update, resolve and re-open tickets (writes go to Supabase).
  */
-export function TicketsPage({ service: fixedService }: { service?: "lighting" }) {
+export function TicketsPage({ service: fixedService }: { service?: ServiceId }) {
   const { tickets, now } = useApp();
   const [view, setView] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -196,7 +196,9 @@ function CreateTicketModal({ onClose, defaultService }: { onClose: () => void; d
         </Field>
         <Field label="Service">
           <Select value={service} onChange={(e) => { setService(e.target.value as ServiceId); setDeviceId(""); }}>
-            <option value="lighting">Lighting</option>
+            {(Object.keys(SERVICE_LABEL) as ServiceId[]).map((s) => (
+              <option key={s} value={s}>{SERVICE_LABEL[s]}</option>
+            ))}
           </Select>
         </Field>
         <Field label="Priority">

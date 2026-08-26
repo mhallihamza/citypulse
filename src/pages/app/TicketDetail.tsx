@@ -107,7 +107,7 @@ export function TicketDetail() {
           label="Device"
           value={
             device ? (
-              <Link to={`/app/lighting/devices/${device.id}`} className="font-mono text-pulse-600 hover:underline">{device.deviceKey}</Link>
+              <Link to={`/app/${device.service}/devices/${device.id}`} className="font-mono text-pulse-600 hover:underline">{device.deviceKey}</Link>
             ) : (
               <span className="text-ink-400">—</span>
             )

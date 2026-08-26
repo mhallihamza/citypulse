@@ -106,6 +106,6 @@ create table device_telemetry (
   ts timestamptz not null default now(),
   lux numeric, brightness numeric, presence boolean, power numeric,
   flow numeric, pressure numeric, fill_level numeric,
-  vehicles integer, density numeric, congestion numeric, travel_time numeric
+  vehicles integer, pending_vehicles integer, density numeric, congestion numeric, travel_time numeric
 );
 create index idx_telemetry_device_ts on device_telemetry (device_id, ts desc);

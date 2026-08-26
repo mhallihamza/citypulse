@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck, Wifi, Zap } from "lucide-react";
 import { useApp } from "@/context/AppContext";
@@ -63,7 +63,21 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Supabase redirects back with #error=access_denied&error_code=otp_expired
+  // when a confirmation link is invalid/expired/already used. Surface a clear,
+  // actionable message instead of a silent form — and clean the URL.
+  useEffect(() => {
+    if (window.location.hash.includes("error=access_denied") && window.location.hash.includes("otp_expired")) {
+      setNotice(
+        "Your email confirmation link is invalid or has expired. Confirmation links work only once — please create the account again to receive a fresh link."
+      );
+      // Remove the error fragment so refreshing doesn't re-show it.
+      window.history.replaceState({}, "", window.location.pathname + window.location.search);
+    }
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +111,12 @@ export function Login() {
           </div>
           <h1 className="font-display text-2xl font-bold text-ink-950">Sign in to CITYPULSE</h1>
           <p className="mt-1 text-sm text-ink-500">Smart City Operations Platform</p>
+
+          {notice && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] leading-relaxed font-medium text-amber-800">
+              {notice}
+            </div>
+          )}
 
           <form onSubmit={submit} className="mt-7 grid gap-4">
             <Field label="Work email">

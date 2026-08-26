@@ -6,7 +6,7 @@ import { Badge, SeverityBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CityMap } from "@/components/map/CityMap";
 import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
-import { lightingStats, serviceConnected } from "@/pages/app/_shared";
+import { lightingStats, serviceConnected, trafficStats, waterStats } from "@/pages/app/_shared";
 import { timeAgo } from "@/lib/format";
 import { SERVICES } from "@/lib/services";
 import type { ServiceId } from "@/lib/types";
@@ -14,14 +14,16 @@ import { cn } from "@/lib/utils";
 
 /**
  * CITYPULSE — global dashboard.
- * This is the CITY OVERVIEW: the status of the whole platform across all four
- * services. Only LIGHTING currently has real operational data; Water, Waste
- * and Traffic render honest "service not connected yet" states. Every number
- * shown is computed from real Supabase records — nothing simulated.
+ * The CITY OVERVIEW: status of the whole platform across all four services.
+ * Lighting, Water and Traffic read live data from Supabase (devices, states,
+ * telemetry, events, tickets); Waste shows an honest "not connected yet" card
+ * until its module ships. Every number is computed from real records.
  */
 export function Dashboard() {
-  const { devices, states, telemetry, events, tickets, insights, organization, loadingData, now } = useApp();
+  const { devices, states, trafficStates, waterStates, telemetry, events, tickets, insights, organization, loadingData, now } = useApp();
   const stats = lightingStats(devices, states, events, tickets);
+  const tStats = trafficStats(devices, trafficStates, events, tickets);
+  const wStats = waterStats(devices, waterStates, tickets);
 
   const criticalOpen = events.filter((e) => e.severity === "critical" && e.status !== "resolved").length;
   const openTickets = tickets.filter((t) => t.status !== "resolved").length;
@@ -76,12 +78,32 @@ export function Dashboard() {
                 {connected ? (
                   <>
                     <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
-                      <MiniStat label="Devices" value={String(stats.total)} />
-                      <MiniStat label="Online" value={String(stats.online)} tone={stats.online > 0 ? "text-live-600" : undefined} />
-                      <MiniStat label="Offline" value={String(stats.offline)} tone={stats.offline > 0 ? "text-amber-600" : undefined} />
-                      <MiniStat label="Incidents" value={String(stats.failures + stats.openTickets)} tone={stats.failures > 0 ? "text-red-600" : undefined} />
+                      {svc.key === "lighting" && (
+                        <>
+                          <MiniStat label="Devices" value={String(stats.total)} />
+                          <MiniStat label="Online" value={String(stats.online)} tone={stats.online > 0 ? "text-live-600" : undefined} />
+                          <MiniStat label="Offline" value={String(stats.offline)} tone={stats.offline > 0 ? "text-amber-600" : undefined} />
+                          <MiniStat label="Incidents" value={String(stats.failures + stats.openTickets)} tone={stats.failures > 0 ? "text-red-600" : undefined} />
+                        </>
+                      )}
+                      {svc.key === "traffic" && (
+                        <>
+                          <MiniStat label="Segments" value={String(tStats.total)} />
+                          <MiniStat label="Online" value={String(tStats.online)} tone={tStats.online > 0 ? "text-live-600" : undefined} />
+                          <MiniStat label="Vehicles" value={String(tStats.vehiclesObserved)} tone="text-pulse-600" />
+                          <MiniStat label="Congested" value={String(tStats.congested)} tone={tStats.congested > 0 ? "text-red-600" : undefined} />
+                        </>
+                      )}
+                      {svc.key === "water" && (
+                        <>
+                          <MiniStat label="Points" value={String(wStats.total)} />
+                          <MiniStat label="Online" value={String(wStats.online)} tone={wStats.online > 0 ? "text-live-600" : undefined} />
+                          <MiniStat label="Leaks" value={String(wStats.leaks)} tone={wStats.leaks > 0 ? "text-red-600" : undefined} />
+                          <MiniStat label="Open tickets" value={String(wStats.openTickets)} />
+                        </>
+                      )}
                     </div>
-                    <div className="mt-3 text-[11px] text-ink-400">Lighting service · live operations</div>
+                    <div className="mt-3 text-[11px] text-ink-400">{svc.name} service · live operations</div>
                   </>
                 ) : (
                   <div className="mt-3 flex flex-col items-start gap-1">
@@ -128,8 +150,9 @@ export function Dashboard() {
               )}
               {recentEvents.map((e) => {
                 const dev = devices.find((d) => d.id === e.deviceId);
+                const href = dev ? `/app/${dev.service}/devices/${dev.id}` : "/app/events";
                 return (
-                  <Link key={e.id} to={dev ? `/app/lighting/devices/${dev.id}` : "/app/events"} className="feed-item flex items-start gap-3 px-5 py-3 transition-colors hover:bg-ink-50/60">
+                  <Link key={e.id} to={href} className="feed-item flex items-start gap-3 px-5 py-3 transition-colors hover:bg-ink-50/60">
                     <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", e.severity === "critical" ? "bg-red-500" : e.severity === "warning" ? "bg-amber-500" : "bg-pulse-500")} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-semibold text-ink-800">{e.title}</div>

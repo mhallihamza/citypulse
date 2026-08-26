@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Form";
 import { EmptyState } from "@/components/ui/Modal";
 import { timeAgo } from "@/lib/format";
-import type { EventStatus, ServiceId, Severity } from "@/lib/types";
+import { SERVICE_LABEL, type EventStatus, type ServiceId, type Severity } from "@/lib/types";
 
 /**
  * Events — real rows from public.events. A new event appears automatically
@@ -36,7 +36,7 @@ export function EventsPage({ service: fixedService }: { service?: ServiceId }) {
   return (
     <div>
       <PageHeader
-        title={fixedService ? `Lighting · Events` : "Events"}
+        title={fixedService ? `${SERVICE_LABEL[fixedService]} · Events` : "Events"}
         subtitle="Real-time event stream written by Fusion AI from device telemetry."
         actions={<Badge tone={newCount > 0 ? "critical" : "success"} dot>{newCount} new</Badge>}
       />
@@ -48,7 +48,9 @@ export function EventsPage({ service: fixedService }: { service?: ServiceId }) {
               Service
               <Select value={service} onChange={(e) => setService(e.target.value as typeof service)} className="mt-1">
                 <option value="all">All services</option>
-                <option value="lighting">Lighting</option>
+                {(Object.keys(SERVICE_LABEL) as ServiceId[]).map((s) => (
+                  <option key={s} value={s}>{SERVICE_LABEL[s]}</option>
+                ))}
               </Select>
             </label>
             <label className="text-xs font-semibold text-ink-500">
@@ -90,7 +92,7 @@ export function EventsPage({ service: fixedService }: { service?: ServiceId }) {
                   <div className="mt-0.5 text-xs text-ink-400">
                     {e.eventType} /{" "}
                     {dev ? (
-                      <Link to={`/app/lighting/devices/${dev.id}`} className="font-medium text-pulse-600 hover:underline">
+                      <Link to={`/app/${dev.service}/devices/${dev.id}`} className="font-medium text-pulse-600 hover:underline">
                         {dev.deviceKey}
                       </Link>
                     ) : (
@@ -127,7 +129,7 @@ export function EventsPage({ service: fixedService }: { service?: ServiceId }) {
                     <Button variant="ghost" size="sm" onClick={() => void resolveEvent(e.id)}>Resolve</Button>
                   )}
                   {dev && (
-                    <Link to={`/app/lighting/devices/${dev.id}`}>
+                    <Link to={`/app/${dev.service}/devices/${dev.id}`}>
                       <Button variant="ghost" size="sm" className="!px-2"><ArrowRight className="h-3.5 w-3.5" /></Button>
                     </Link>
                   )}

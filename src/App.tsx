@@ -32,6 +32,11 @@ import { LightingDevicesPage } from "@/pages/app/lighting/LightingDevicesPage";
 import { LightingDeviceDetail } from "@/pages/app/lighting/LightingDeviceDetail";
 import { LightingMapPage } from "@/pages/app/lighting/LightingMapPage";
 import { LightingCommandsPage } from "@/pages/app/lighting/LightingCommandsPage";
+// Traffic & Water (real services)
+import { TrafficPage } from "@/pages/app/traffic/TrafficPage";
+import { TrafficDevicesPage, TrafficDeviceDetail } from "@/pages/app/traffic/TrafficDevices";
+import { WaterPage } from "@/pages/app/water/WaterPage";
+import { WaterDevicesPage, WaterDeviceDetail } from "@/pages/app/water/WaterDevices";
 import { NotFound } from "@/pages/NotFound";
 
 function ScrollToTop() {
@@ -174,7 +179,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="map" element={<CityMapPage />} />
 
-          {/* Services: Lighting is live; Water/Waste/Traffic are future modules */}
+          {/* Services: Lighting / Water / Traffic are live; Waste is a future module */}
           <Route path="lighting" element={<LightingPage />} />
           <Route path="lighting/devices" element={<LightingDevicesPage />} />
           <Route path="lighting/devices/:deviceId" element={<LightingDeviceDetail />} />
@@ -183,9 +188,22 @@ export default function App() {
           <Route path="lighting/commands" element={<LightingCommandsPage />} />
           <Route path="lighting/tickets" element={<TicketsPage service="lighting" />} />
 
-          <Route path="water" element={<ServicePage service="water" />} />
+          {/* Water — real service */}
+          <Route path="water" element={<WaterPage />} />
+          <Route path="water/devices" element={<WaterDevicesPage />} />
+          <Route path="water/devices/:deviceId" element={<WaterDeviceDetail />} />
+          <Route path="water/events" element={<EventsPage service="water" />} />
+          <Route path="water/tickets" element={<TicketsPage service="water" />} />
+
+          {/* Traffic — real service */}
+          <Route path="traffic" element={<TrafficPage />} />
+          <Route path="traffic/devices" element={<TrafficDevicesPage />} />
+          <Route path="traffic/devices/:deviceId" element={<TrafficDeviceDetail />} />
+          <Route path="traffic/events" element={<EventsPage service="traffic" />} />
+          <Route path="traffic/tickets" element={<TicketsPage service="traffic" />} />
+
+          {/* Waste — future module */}
           <Route path="waste" element={<ServicePage service="waste" />} />
-          <Route path="traffic" element={<ServicePage service="traffic" />} />
 
           {/* Operations */}
           <Route path="events" element={<EventsPage />} />

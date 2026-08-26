@@ -98,7 +98,7 @@ create table if not exists device_telemetry (
   ts timestamptz not null default now(),
   lux numeric, brightness numeric, presence boolean, power numeric,
   flow numeric, pressure numeric, fill_level numeric,
-  vehicles integer, density numeric, congestion numeric, travel_time numeric
+  vehicles integer, pending_vehicles integer, density numeric, congestion numeric, travel_time numeric
 );
 create index if not exists idx_telemetry_device_ts on device_telemetry (device_id, ts desc);
 
@@ -196,6 +196,42 @@ create table if not exists lighting_states (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- ----------------------------------------------------------------------------
+-- Live traffic state (one row per traffic device)
+-- ----------------------------------------------------------------------------
+create table if not exists traffic_states (
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid primary key references devices(id) on delete cascade,
+  vehicle_count integer not null default 0,
+  pending_vehicles integer not null default 0,
+  density numeric default 0,
+  congestion numeric default 0,
+  travel_time numeric default 0,
+  state text not null default 'CLEAR',
+  online boolean not null default false,
+  last_seen timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_traffic_states_org on traffic_states (org_id);
+
+-- ----------------------------------------------------------------------------
+-- Live water state (one row per water device)
+-- ----------------------------------------------------------------------------
+create table if not exists water_states (
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid primary key references devices(id) on delete cascade,
+  flow numeric default 0,
+  pressure numeric default 0,
+  leakage boolean not null default false,
+  state text not null default 'NORMAL',
+  online boolean not null default false,
+  last_seen timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_water_states_org on water_states (org_id);
 
 -- ----------------------------------------------------------------------------
 -- Device commands
@@ -327,6 +363,8 @@ alter table locations            enable row level security;
 alter table devices              enable row level security;
 alter table device_telemetry     enable row level security;
 alter table lighting_states      enable row level security;
+alter table traffic_states       enable row level security;
+alter table water_states         enable row level security;
 alter table device_commands      enable row level security;
 alter table audit_logs           enable row level security;
 alter table operators            enable row level security;
@@ -400,6 +438,28 @@ create policy "states: org insert" on lighting_states
   for insert with check (org_id = public.org_org_id(auth.uid()));
 drop policy if exists "states: org update" on lighting_states;
 create policy "states: org update" on lighting_states
+  for update using (org_id = public.org_org_id(auth.uid()))
+  with check (org_id = public.org_org_id(auth.uid()));
+
+drop policy if exists "traffic_states: org scope" on traffic_states;
+create policy "traffic_states: org scope" on traffic_states
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "traffic_states: org insert" on traffic_states;
+create policy "traffic_states: org insert" on traffic_states
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "traffic_states: org update" on traffic_states;
+create policy "traffic_states: org update" on traffic_states
+  for update using (org_id = public.org_org_id(auth.uid()))
+  with check (org_id = public.org_org_id(auth.uid()));
+
+drop policy if exists "water_states: org scope" on water_states;
+create policy "water_states: org scope" on water_states
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "water_states: org insert" on water_states;
+create policy "water_states: org insert" on water_states
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "water_states: org update" on water_states;
+create policy "water_states: org update" on water_states
   for update using (org_id = public.org_org_id(auth.uid()))
   with check (org_id = public.org_org_id(auth.uid()));
 
@@ -529,6 +589,14 @@ begin
     insert into lighting_states (org_id, device_id)
     values (new.org_id, new.id)
     on conflict (device_id) do nothing;
+  elsif new.service = 'traffic' then
+    insert into traffic_states (org_id, device_id)
+    values (new.org_id, new.id)
+    on conflict (device_id) do nothing;
+  elsif new.service = 'water' then
+    insert into water_states (org_id, device_id)
+    values (new.org_id, new.id)
+    on conflict (device_id) do nothing;
   end if;
   return new;
 end $$;
@@ -570,6 +638,15 @@ end $$;
 drop trigger if exists touch_tickets on tickets;
 create trigger touch_tickets
   before update on tickets
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists touch_traffic_states on traffic_states;
+create trigger touch_traffic_states
+  before update on traffic_states
+  for each row execute function public.set_updated_at();
+drop trigger if exists touch_water_states on water_states;
+create trigger touch_water_states
+  before update on water_states
   for each row execute function public.set_updated_at();
 
 -- ============================================================================
@@ -736,5 +813,16 @@ end $$;
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'ticket_assignments') then
     alter publication supabase_realtime add table public.ticket_assignments;
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'traffic_states') then
+    alter publication supabase_realtime add table public.traffic_states;
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'water_states') then
+    alter publication supabase_realtime add table public.water_states;
   end if;
 end $$;

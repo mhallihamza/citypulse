@@ -102,6 +102,30 @@ export interface LightingState {
   lastSeen: number;
 }
 
+/** Live operational state for a traffic device (traffic_states table). */
+export interface TrafficState {
+  deviceId: string;
+  vehicleCount: number;
+  pendingVehicles: number;
+  density: number | null;
+  congestion: number | null; // 0..100 %
+  travelTime: number | null; // seconds
+  state: "CLEAR" | "MODERATE" | "CONGESTED" | "INCIDENT" | string;
+  online: boolean;
+  lastSeen: number;
+}
+
+/** Live operational state for a water device (water_states table). */
+export interface WaterState {
+  deviceId: string;
+  flow: number | null; // L/s
+  pressure: number | null; // bar
+  leakage: boolean;
+  state: "NORMAL" | "LEAK" | "LOW_PRESSURE" | "OFFLINE" | string;
+  online: boolean;
+  lastSeen: number;
+}
+
 /** One telemetry sample (device_telemetry row). */
 export interface TelemetrySample {
   ts: number;
@@ -109,6 +133,14 @@ export interface TelemetrySample {
   brightness?: number;
   presence?: number; // 0 | 1 for charts
   power?: number;
+  flow?: number;
+  pressure?: number;
+  fillLevel?: number;
+  vehicles?: number;
+  pendingVehicles?: number;
+  density?: number;
+  congestion?: number;
+  travelTime?: number;
 }
 
 // ---------------------------------------------------------------------------

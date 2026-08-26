@@ -97,6 +97,42 @@ create table lighting_states (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- ----------------------------------------------------------------------------
+-- Live traffic state (one row per traffic device)
+-- ----------------------------------------------------------------------------
+create table traffic_states (
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid primary key references devices(id) on delete cascade,
+  vehicle_count integer not null default 0,
+  pending_vehicles integer not null default 0,
+  density numeric default 0,
+  congestion numeric default 0,
+  travel_time numeric default 0,
+  state text not null default 'CLEAR',
+  online boolean not null default false,
+  last_seen timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index idx_traffic_states_org on traffic_states (org_id);
+
+-- ----------------------------------------------------------------------------
+-- Live water state (one row per water device)
+-- ----------------------------------------------------------------------------
+create table water_states (
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid primary key references devices(id) on delete cascade,
+  flow numeric default 0,
+  pressure numeric default 0,
+  leakage boolean not null default false,
+  state text not null default 'NORMAL',
+  online boolean not null default false,
+  last_seen timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index idx_water_states_org on water_states (org_id);
 -- ----------------------------------------------------------------------------
 -- Device commands (UI writes here; Fusion AI consumes and delivers via MQTT)
 -- ----------------------------------------------------------------------------

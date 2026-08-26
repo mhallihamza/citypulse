@@ -39,7 +39,7 @@ export const SERVICES: ServiceConfig[] = [
     color: "#246BFF",
     bg: "#EEF6FF",
     description: "Water infrastructure monitoring.",
-    connected: false,
+    connected: true,
   },
   {
     key: "waste",
@@ -57,7 +57,7 @@ export const SERVICES: ServiceConfig[] = [
     color: "#8B5CF6",
     bg: "#F5F3FF",
     description: "Traffic monitoring & analytics.",
-    connected: false,
+    connected: true,
   },
 ];
 

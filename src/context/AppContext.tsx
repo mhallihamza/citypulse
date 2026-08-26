@@ -29,6 +29,8 @@ import type {
   TicketAssignment,
   TicketPriority,
   TicketStatus,
+  TrafficState,
+  WaterState,
 } from "@/lib/types";
 import { errMsg, isSchemaError } from "@/lib/api";
 
@@ -59,6 +61,8 @@ interface AppContextValue {
   // ---- real, org-scoped data ----
   devices: Device[];
   states: Record<string, LightingState>;
+  trafficStates: Record<string, TrafficState>;
+  waterStates: Record<string, WaterState>;
   telemetry: Record<string, TelemetrySample[]>;
   events: CityEvent[];
   tickets: Ticket[];
@@ -111,7 +115,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const REALTIME_TABLES = ["devices", "lighting_states", "device_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
+const REALTIME_TABLES = ["devices", "lighting_states", "traffic_states", "water_states", "device_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
@@ -128,6 +132,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [states, setStates] = useState<Record<string, LightingState>>({});
+  const [trafficStates, setTrafficStates] = useState<Record<string, TrafficState>>({});
+  const [waterStates, setWaterStates] = useState<Record<string, WaterState>>({});
   const [telemetry, setTelemetry] = useState<Record<string, TelemetrySample[]>>({});
   const [events, setEvents] = useState<CityEvent[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -144,6 +150,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const devicesRef = useRef<Device[]>([]);
   const usersRef = useRef<Profile[]>([]);
   const statesRef = useRef<Record<string, LightingState>>({});
+  const trafficStatesRef = useRef<Record<string, TrafficState>>({});
+  const waterStatesRef = useRef<Record<string, WaterState>>({});
   const eventsRef = useRef<CityEvent[]>([]);
   const ticketsRef = useRef<Ticket[]>([]);
   const notificationsRef = useRef<AppNotification[]>([]);
@@ -175,6 +183,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     statesRef.current = states;
   }, [states]);
+  useEffect(() => {
+    trafficStatesRef.current = trafficStates;
+  }, [trafficStates]);
+  useEffect(() => {
+    waterStatesRef.current = waterStates;
+  }, [waterStates]);
   useEffect(() => {
     eventsRef.current = events;
   }, [events]);
@@ -208,6 +222,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setServices([]);
     setDevices([]);
     setStates({});
+    setTrafficStates({});
+    setWaterStates({});
     setTelemetry({});
     setEvents([]);
     setTickets([]);
@@ -259,9 +275,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !org) return;
     setLoadingData(true);
     try {
-      const [devs, st, evs, tks, nts, ins, cmds, ops, asgs, locs, orgUsers, inv] = await Promise.all([
+      const [devs, st, ts, ws, evs, tks, nts, ins, cmds, ops, asgs, locs, orgUsers, inv] = await Promise.all([
         api.fetchDevices(org),
         api.fetchLightingStates(org),
+        api.fetchTrafficStates(org),
+        api.fetchWaterStates(org),
         api.fetchEvents(org),
         api.fetchTickets(org),
         api.fetchNotifications(org),
@@ -288,6 +306,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setDevices(devs);
       setStates(Object.fromEntries(st.map((s) => [s.deviceId, s])));
+      setTrafficStates(Object.fromEntries(ts.map((s) => [s.deviceId, s])));
+      setWaterStates(Object.fromEntries(ws.map((s) => [s.deviceId, s])));
       setTelemetry(tel);
       setEvents(evs);
       setTickets(ticketsJoined);
@@ -370,6 +390,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
           // (mode / online / brightness / lux / last_seen) instead of inferring
           // the connection state client-side.
           setStates((prev) => ({ ...prev, [s.deviceId]: s }));
+        }
+        return;
+      }
+
+      if (table === "traffic_states") {
+        const s = api.mapTrafficState(row as never);
+        if (event === "DELETE") {
+          setTrafficStates((prev) => {
+            const { [s.deviceId]: _removed, ...rest } = prev;
+            return rest;
+          });
+        } else {
+          setTrafficStates((prev) => ({ ...prev, [s.deviceId]: s }));
+        }
+        return;
+      }
+
+      if (table === "water_states") {
+        const s = api.mapWaterState(row as never);
+        if (event === "DELETE") {
+          setWaterStates((prev) => {
+            const { [s.deviceId]: _removed, ...rest } = prev;
+            return rest;
+          });
+        } else {
+          setWaterStates((prev) => ({ ...prev, [s.deviceId]: s }));
         }
         return;
       }
@@ -520,7 +566,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: { full_name: fullName },
+        // Send the user back to the app (login screen) after they click the
+        // confirmation link. The origin must also be listed under
+        // Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs.
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
     });
     if (error) throw error;
     return { needsConfirmation: !data.session };
@@ -778,6 +830,8 @@ const setTicketStatus = useCallback(
     needsOnboarding,
     devices,
     states,
+    trafficStates,
+    waterStates,
     telemetry,
     events,
     tickets,

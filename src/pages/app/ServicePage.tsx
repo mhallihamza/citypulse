@@ -9,10 +9,10 @@ import { SERVICE_CONFIG, SERVICES } from "@/lib/services";
 import type { ServiceId } from "@/lib/types";
 
 /**
- * Service landing page for services that are NOT yet connected to real data
- * (Water / Waste / Traffic). These pages are intentionally honest:
- * CityPulse is a four-service platform; LIGHTING is the only implemented
- * service today. No simulated statistics are ever rendered here.
+ * Service landing page for services NOT yet connected to real data (Waste).
+ * Water and Traffic are now live modules with their own dashboards; this page
+ * remains for future services so they onboard without any redesign. It renders
+ * honest empty states — no simulated statistics are ever shown here.
  */
 export function ServicePage({ service }: { service: ServiceId }) {
   const meta = SERVICE_CONFIG[service];

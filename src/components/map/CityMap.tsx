@@ -121,6 +121,23 @@ function stateMeta(
       { label: "Lamp", value: s?.lampFailure ? "FAILURE" : "OK" },
     ];
   }
+  if (device.service === "traffic") {
+    return [
+      { label: "Vehicles", value: last?.vehicles != null ? String(last.vehicles) : "—" },
+      { label: "Pending", value: last?.pendingVehicles != null ? String(last.pendingVehicles) : "—" },
+      { label: "Density", value: last?.density != null ? Number(last.density).toFixed(1) : "—" },
+      { label: "Congestion", value: last?.congestion != null ? `${Number(last.congestion).toFixed(0)}%` : "—" },
+      { label: "Travel time", value: last?.travelTime != null ? `${Number(last.travelTime).toFixed(0)}s` : "—" },
+      { label: "Status", value: device.status.toUpperCase() },
+    ];
+  }
+  if (device.service === "water") {
+    return [
+      { label: "Flow", value: last?.flow != null ? `${Number(last.flow).toFixed(1)} L/s` : "—" },
+      { label: "Pressure", value: last?.pressure != null ? `${Number(last.pressure).toFixed(2)} bar` : "—" },
+      { label: "Status", value: device.status.toUpperCase() },
+    ];
+  }
   return [{ label: "Status", value: device.status.toUpperCase() }];
 }
 
@@ -279,7 +296,7 @@ export function CityMap({
               <Button
                 size="xs"
                 variant="primary"
-                onClick={() => (onSelectDevice ? onSelectDevice(selectedDevice.id) : navigate(`/app/lighting/devices/${selectedDevice.id}`))}
+                onClick={() => (onSelectDevice ? onSelectDevice(selectedDevice.id) : navigate(`/app/${selectedDevice.service}/devices/${selectedDevice.id}`))}
               >
                 View device <ArrowUpRight className="h-3 w-3" />
               </Button>

@@ -23,6 +23,8 @@ import type {
   TicketComment,
   TicketPriority,
   TicketStatus,
+  TrafficState,
+  WaterState,
 } from "@/lib/types";
 
 /**
@@ -111,6 +113,34 @@ interface TelemetryRow {
   brightness: string | number | null;
   presence: boolean | null;
   power: string | number | null;
+  flow: string | number | null;
+  pressure: string | number | null;
+  fill_level: string | number | null;
+  vehicles: string | number | null;
+  pending_vehicles: string | number | null;
+  density: string | number | null;
+  congestion: string | number | null;
+  travel_time: string | number | null;
+}
+interface TrafficStateRow {
+  device_id: string;
+  vehicle_count: number | null;
+  pending_vehicles: number | null;
+  density: string | number | null;
+  congestion: string | number | null;
+  travel_time: string | number | null;
+  state: string;
+  online: boolean | null;
+  last_seen: string | null;
+}
+interface WaterStateRow {
+  device_id: string;
+  flow: string | number | null;
+  pressure: string | number | null;
+  leakage: boolean | null;
+  state: string;
+  online: boolean | null;
+  last_seen: string | null;
 }
 interface EventRow {
   id: string;
@@ -283,6 +313,40 @@ export function mapTelemetry(row: TelemetryRow): TelemetrySample {
     brightness: toNum(row.brightness) ?? undefined,
     presence: row.presence === null ? undefined : Number(row.presence),
     power: toNum(row.power) ?? undefined,
+    flow: toNum(row.flow) ?? undefined,
+    pressure: toNum(row.pressure) ?? undefined,
+    fillLevel: toNum(row.fill_level) ?? undefined,
+    vehicles: toNum(row.vehicles) ?? undefined,
+    pendingVehicles: toNum(row.pending_vehicles) ?? undefined,
+    density: toNum(row.density) ?? undefined,
+    congestion: toNum(row.congestion) ?? undefined,
+    travelTime: toNum(row.travel_time) ?? undefined,
+  };
+}
+
+export function mapTrafficState(row: TrafficStateRow): TrafficState {
+  return {
+    deviceId: row.device_id,
+    vehicleCount: row.vehicle_count ?? 0,
+    pendingVehicles: row.pending_vehicles ?? 0,
+    density: toNum(row.density),
+    congestion: toNum(row.congestion),
+    travelTime: toNum(row.travel_time),
+    state: row.state,
+    online: Boolean(row.online),
+    lastSeen: toMs(row.last_seen) ?? Date.now(),
+  };
+}
+
+export function mapWaterState(row: WaterStateRow): WaterState {
+  return {
+    deviceId: row.device_id,
+    flow: toNum(row.flow),
+    pressure: toNum(row.pressure),
+    leakage: Boolean(row.leakage),
+    state: row.state,
+    online: Boolean(row.online),
+    lastSeen: toMs(row.last_seen) ?? Date.now(),
   };
 }
 
@@ -485,6 +549,20 @@ export async function fetchLightingStates(orgId: string | null): Promise<Lightin
   return (data ?? []).map((r: StateRow) => mapState(r));
 }
 
+export async function fetchTrafficStates(orgId: string | null): Promise<TrafficState[]> {
+  if (!supabase || !orgId) return [];
+  const { data, error } = await supabase.from("traffic_states").select("*").eq("org_id", orgId);
+  if (error) throw error;
+  return (data ?? []).map((r: TrafficStateRow) => mapTrafficState(r));
+}
+
+export async function fetchWaterStates(orgId: string | null): Promise<WaterState[]> {
+  if (!supabase || !orgId) return [];
+  const { data, error } = await supabase.from("water_states").select("*").eq("org_id", orgId);
+  if (error) throw error;
+  return (data ?? []).map((r: WaterStateRow) => mapWaterState(r));
+}
+
 export async function fetchTelemetry(
   orgId: string | null,
   deviceIds: string[],
@@ -493,7 +571,9 @@ export async function fetchTelemetry(
   if (!supabase || !orgId || !deviceIds.length) return {};
   const { data, error } = await supabase
     .from("device_telemetry")
-    .select("device_id, ts, lux, brightness, presence, power")
+    .select(
+      "device_id, ts, lux, brightness, presence, power, flow, pressure, fill_level, vehicles, pending_vehicles, density, congestion, travel_time"
+    )
     .eq("org_id", orgId)
     .in("device_id", deviceIds)
     .order("ts", { ascending: false })
@@ -595,6 +675,7 @@ export interface CreateDeviceInput {
   type: string;
   zone: string;
   locationLabel: string;
+  service?: ServiceId; // defaults to lighting (back-compat)
   latitude?: number | null;
   longitude?: number | null;
   metadata?: Record<string, unknown>;
@@ -603,6 +684,7 @@ export interface CreateDeviceInput {
 export async function insertDevice(orgId: string, input: CreateDeviceInput): Promise<void> {
   if (!supabase || !orgId) throw new Error("Supabase is not configured");
   const user = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+  const service = input.service ?? "lighting";
 
   let locationId: string | null = null;
   if (input.locationLabel.trim()) {
@@ -621,19 +703,20 @@ export async function insertDevice(orgId: string, input: CreateDeviceInput): Pro
     locationId = loc?.id ?? null;
   }
 
-  const mqttTopic = `citypulse/${orgId}/lighting/${input.deviceKey.trim()}`;
+  const defaultType = { lighting: "ESP32_LIGHTING_CONTROLLER", traffic: "TRAFFIC_SEGMENT_CONTROLLER", water: "WATER_FLOW_CONTROLLER", waste: "WASTE_BIN_SENSOR" }[service];
+  const mqttTopic = `citypulse/${service}/${input.deviceKey.trim()}`;
   const { error } = await supabase.from("devices").insert({
     org_id: orgId,
-    service: "lighting",
+    service,
     location_id: locationId,
     device_key: input.deviceKey.trim().toUpperCase(),
     display_id: input.deviceKey.trim().toUpperCase(),
     display_name: input.displayName.trim() || input.deviceKey.trim().toUpperCase(),
-    type: input.type.trim() || "ESP32_LIGHTING_CONTROLLER",
+    type: input.type.trim() || defaultType,
     firmware: "v1.0.0",
     mqtt_topic: mqttTopic,
     status: "normal",
-    mode: "NORMAL",
+    mode: service === "traffic" ? "CLEAR" : "NORMAL",
     connection: false,
     metadata: input.metadata ?? {},
   });
@@ -645,7 +728,7 @@ export async function insertDevice(orgId: string, input: CreateDeviceInput): Pro
     action: "device.created",
     entityType: "devices",
     entityId: input.deviceKey.trim().toUpperCase(),
-    detail: `Registered lighting device ${input.deviceKey.trim().toUpperCase()}`,
+    detail: `Registered ${service} device ${input.deviceKey.trim().toUpperCase()}`,
   });
 }
 
