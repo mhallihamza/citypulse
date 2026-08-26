@@ -34,6 +34,22 @@ import type {
 } from "@/lib/types";
 import { errMsg, isSchemaError } from "@/lib/api";
 
+/**
+ * Optional-table guard: service tables added by newer migrations
+ * (traffic_states / water_states) may legitimately be absent on projects that
+ * have not run the latest SQL yet. A missing OPTIONAL table must never poison
+ * the whole hydration (which would flip schemaMissing and lock the user out),
+ * so these fetches degrade to empty results with a console hint instead.
+ */
+async function optional<T>(promise: Promise<T>, fallback: T, label: string): Promise<T> {
+  try {
+    return await promise;
+  } catch (e) {
+    console.warn(`[CITYPULSE] ${label} unavailable — apply the latest schema migration (supabase/traffic_water_schema.sql).`, e);
+    return fallback;
+  }
+}
+
 export interface Toast {
   id: string;
   title: string;
@@ -278,8 +294,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const [devs, st, ts, ws, evs, tks, nts, ins, cmds, ops, asgs, locs, orgUsers, inv] = await Promise.all([
         api.fetchDevices(org),
         api.fetchLightingStates(org),
-        api.fetchTrafficStates(org),
-        api.fetchWaterStates(org),
+        optional(api.fetchTrafficStates(org), [], "traffic_states"),
+        optional(api.fetchWaterStates(org), [], "water_states"),
         api.fetchEvents(org),
         api.fetchTickets(org),
         api.fetchNotifications(org),
@@ -292,7 +308,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         api.fetchInvites(org),
       ]);
 
-      const tel = await api.fetchTelemetry(org, devs.map((d) => d.id));
+      const tel = await optional(
+        api.fetchTelemetry(org, devs.map((d) => d.id)),
+        {},
+        "device_telemetry.pending_vehicles"
+      );
 
       const commandsJoined = cmds.map((c) => ({
         ...c,
