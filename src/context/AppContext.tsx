@@ -131,7 +131,10 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const REALTIME_TABLES = ["devices", "lighting_states", "traffic_states", "water_states", "device_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
+const REALTIME_TABLES = ["devices", "lighting_states", "traffic_states", "water_states", "lighting_telemetry", "traffic_telemetry", "water_telemetry", "waste_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
+
+/** Append-only per-service telemetry history tables — realtime INSERTs only. */
+const TELEMETRY_REALTIME = new Set<string>(["lighting_telemetry", "traffic_telemetry", "water_telemetry", "waste_telemetry"]);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
@@ -311,7 +314,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const tel = await optional(
         api.fetchTelemetry(org, devs.map((d) => d.id)),
         {},
-        "device_telemetry.pending_vehicles"
+        "per-service telemetry tables (run supabase/service_telemetry_schema.sql)"
       );
 
       const commandsJoined = cmds.map((c) => ({
@@ -467,13 +470,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (table === "device_telemetry") {
-        // Append-only log table — listen to INSERTs. postgres_changes delivers the
-        // complete new row, so map it directly into the per-device sample list.
+      if (TELEMETRY_REALTIME.has(table)) {
+        // Per-service telemetry history tables are append-only logs — listen to
+        // INSERTs. postgres_changes delivers the complete new row, so map it
+        // directly into the per-device sample list. Rows reaching
+        // device_telemetry are copied into these tables by the SQL bridge
+        // trigger, so both Fusion AI paths surface here exactly once.
         if (event === "INSERT") {
           const deviceId = (row as { device_id?: string }).device_id ?? "";
           if (!deviceId) return;
-          const s = api.mapTelemetry(row as never);
+          const s = api.mapTelemetryRow(table as api.TelemetryTable, row as Record<string, unknown>);
           setTelemetry((prev) => {
             const arr = prev[deviceId] ?? [];
             // Deduplicate by timestamp so a redelivered / race-condition INSERT

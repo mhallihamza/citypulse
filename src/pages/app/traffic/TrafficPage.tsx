@@ -24,13 +24,13 @@ export function TrafficPage() {
 
   // Aggregate live metrics across ONLINE devices only — real values only.
   const onlineFleet = stats.fleet.filter((d) => trafficStates[d.id]?.online);
-  const avgCongestion =
+  const avgDensity =
     onlineFleet.length > 0
-      ? onlineFleet.reduce((acc, d) => acc + Number(trafficStates[d.id]?.congestion ?? 0), 0) / onlineFleet.length
+      ? onlineFleet.reduce((acc, d) => acc + Number(trafficStates[d.id]?.density ?? 0), 0) / onlineFleet.length
       : null;
-  const avgTravel =
+  const avgTmax =
     onlineFleet.length > 0
-      ? onlineFleet.reduce((acc, d) => acc + Number(trafficStates[d.id]?.travelTime ?? 0), 0) / onlineFleet.length
+      ? onlineFleet.reduce((acc, d) => acc + Number(trafficStates[d.id]?.tmax ?? 0), 0) / onlineFleet.length
       : null;
 
   return (
@@ -71,8 +71,8 @@ export function TrafficPage() {
             <Kpi label="Monitored segments" value={stats.total} />
             <Kpi label="Online" value={stats.online} tone={stats.online > 0 ? "text-live-600" : undefined} />
             <Kpi label="Vehicles observed" value={stats.vehiclesObserved} tone="text-pulse-600" />
-            <Kpi label="Avg congestion" value={avgCongestion != null ? `${avgCongestion.toFixed(0)}%` : "—"} tone={avgCongestion != null && avgCongestion > 60 ? "text-red-600" : undefined} />
-            <Kpi label="Avg travel time" value={avgTravel != null ? `${avgTravel.toFixed(0)}s` : "—"} />
+            <Kpi label="Avg density" value={avgDensity != null ? avgDensity.toFixed(1) : "—"} />
+            <Kpi label="Avg T-max" value={avgTmax != null ? `${avgTmax.toFixed(0)}s` : "—"} />
           </div>
 
           <div className="mt-6 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
@@ -92,10 +92,9 @@ export function TrafficPage() {
                     <tr className="border-b border-ink-100 bg-ink-50/60 text-left text-[11px] uppercase tracking-widest text-ink-400">
                       <th className="px-5 py-2.5 font-semibold">Segment</th>
                       <th className="px-3 py-2.5 font-semibold">Vehicles</th>
-                      <th className="px-3 py-2.5 font-semibold">Pending</th>
+                      <th className="px-3 py-2.5 font-semibold">Overdue</th>
                       <th className="px-3 py-2.5 font-semibold">Density</th>
-                      <th className="px-3 py-2.5 font-semibold">Congestion</th>
-                      <th className="px-3 py-2.5 font-semibold">Travel</th>
+                      <th className="px-3 py-2.5 font-semibold">T-max</th>
                       <th className="px-3 py-2.5 font-semibold">Last seen</th>
                       <th className="px-3 py-2.5 font-semibold">Status</th>
                     </tr>
@@ -112,18 +111,9 @@ export function TrafficPage() {
                             <div className="truncate text-[11px] text-ink-400">{s?.state ?? "—"}</div>
                           </td>
                           <td className="px-3 py-3 tabular text-ink-800">{s?.vehicleCount ?? "—"}</td>
-                          <td className="px-3 py-3 tabular text-ink-600">{s?.pendingVehicles ?? "—"}</td>
+                          <td className="px-3 py-3 tabular text-ink-600">{s?.overdueVehicles ?? "—"}</td>
                           <td className="px-3 py-3 tabular text-ink-600">{s?.density != null ? Number(s.density).toFixed(1) : "—"}</td>
-                          <td className="px-3 py-3">
-                            {s?.congestion != null ? (
-                              <span className={cn("tabular font-semibold", s.congestion > 60 ? "text-red-600" : s.congestion > 30 ? "text-amber-600" : "text-live-600")}>
-                                {Number(s.congestion).toFixed(0)}%
-                              </span>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td className="px-3 py-3 tabular text-ink-600">{s?.travelTime != null ? `${Number(s.travelTime).toFixed(0)}s` : "—"}</td>
+                          <td className="px-3 py-3 tabular text-ink-600">{s?.tmax != null ? `${Number(s.tmax).toFixed(0)}s` : "—"}</td>
                           <td className="px-3 py-3 text-xs tabular text-ink-500">{s?.lastSeen ? timeAgo(s.lastSeen, now) : "never"}</td>
                           <td className="px-3 py-3"><OnlineBadge online={Boolean(s?.online)} /></td>
                         </tr>
@@ -138,7 +128,7 @@ export function TrafficPage() {
               <Card className="overflow-hidden">
                 <CardHeader title="Traffic map" subtitle="Real positions · click a marker for detail" />
                 <div className="p-4">
-                  <CityMap devices={stats.fleet} events={trafficEvents} tickets={tickets} states={{}} telemetry={telemetry} dark interactive className="h-[300px]" />
+                  <CityMap devices={stats.fleet} events={trafficEvents} tickets={tickets} trafficStates={trafficStates} telemetry={telemetry} dark interactive className="h-[300px]" />
                 </div>
               </Card>
 

@@ -106,10 +106,9 @@ export interface LightingState {
 export interface TrafficState {
   deviceId: string;
   vehicleCount: number;
-  pendingVehicles: number;
+  overdueVehicles: number; // vehicles still between IR1 and IR2 past T-max
   density: number | null;
-  congestion: number | null; // 0..100 %
-  travelTime: number | null; // seconds
+  tmax: number | null; // max allowed travel time (seconds)
   state: "CLEAR" | "MODERATE" | "CONGESTED" | "INCIDENT" | string;
   online: boolean;
   lastSeen: number;
@@ -126,21 +125,28 @@ export interface WaterState {
   lastSeen: number;
 }
 
-/** One telemetry sample (device_telemetry row). */
+/** One telemetry sample from a per-service telemetry history table. */
 export interface TelemetrySample {
   ts: number;
+  // lighting_telemetry
   lux?: number;
   brightness?: number;
-  presence?: number; // 0 | 1 for charts
-  power?: number;
+  presence?: number; // 0|1 for charts
+  night?: boolean;
+  mode?: string;
+  lampFailure?: boolean;
+  // traffic_telemetry
+  state?: string;
+  vehicleCount?: number;
+  density?: number;
+  overdueVehicles?: number;
+  tmax?: number;
+  // water_telemetry
   flow?: number;
   pressure?: number;
+  leakage?: boolean;
+  // waste_telemetry
   fillLevel?: number;
-  vehicles?: number;
-  pendingVehicles?: number;
-  density?: number;
-  congestion?: number;
-  travelTime?: number;
 }
 
 // ---------------------------------------------------------------------------

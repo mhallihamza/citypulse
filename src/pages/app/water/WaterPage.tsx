@@ -130,7 +130,7 @@ export function WaterPage() {
               <Card className="overflow-hidden">
                 <CardHeader title="Water map" subtitle="Real positions · click a marker for detail" />
                 <div className="p-4">
-                  <CityMap devices={stats.fleet} events={waterEvents} tickets={tickets} states={{}} telemetry={telemetry} dark interactive className="h-[300px]" />
+                  <CityMap devices={stats.fleet} events={waterEvents} tickets={tickets} waterStates={waterStates} telemetry={telemetry} dark interactive className="h-[300px]" />
                 </div>
               </Card>
 
@@ -161,7 +161,7 @@ export function WaterPage() {
                 <p className="text-xs leading-relaxed text-ink-400">
                   {samples.filter((s) => Number.isFinite(Number(s.flow))).length} flow samples and{" "}
                   {samples.filter((s) => Number.isFinite(Number(s.pressure))).length} pressure samples are stored in{" "}
-                  <span className="font-mono">device_telemetry</span>. Open a device to chart its history.
+                  <span className="font-mono">water_telemetry</span>. Open a device to chart its history.
                 </p>
               </div>
             </div>

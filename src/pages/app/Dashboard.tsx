@@ -132,7 +132,7 @@ export function Dashboard() {
             }
           />
           <div className="p-4">
-            <CityMap devices={devices} events={events} tickets={tickets} states={states} telemetry={telemetry} dark className="h-[380px]" />
+            <CityMap devices={devices} events={events} tickets={tickets} states={states} trafficStates={trafficStates} waterStates={waterStates} telemetry={telemetry} dark className="h-[380px]" />
           </div>
         </Card>
 

@@ -106,29 +106,46 @@ interface StateRow {
   online: boolean | null;
   last_seen: string | null;
 }
-interface TelemetryRow {
+export type TelemetryTable = "lighting_telemetry" | "traffic_telemetry" | "water_telemetry" | "waste_telemetry";
+
+interface LightingTelRow {
   device_id: string;
   ts: string;
   lux: string | number | null;
   brightness: string | number | null;
   presence: boolean | null;
-  power: string | number | null;
+  night: boolean | null;
+  mode: string | null;
+  lamp_failure: boolean | null;
+}
+interface TrafficTelRow {
+  device_id: string;
+  ts: string;
+  state: string | null;
+  vehicle_count: number | null;
+  density: string | number | null;
+  overdue_vehicles: number | null;
+  tmax: string | number | null;
+}
+interface WaterTelRow {
+  device_id: string;
+  ts: string;
   flow: string | number | null;
   pressure: string | number | null;
+  leakage: boolean | null;
+}
+interface WasteTelRow {
+  device_id: string;
+  ts: string;
   fill_level: string | number | null;
-  vehicles: string | number | null;
-  pending_vehicles: string | number | null;
-  density: string | number | null;
-  congestion: string | number | null;
-  travel_time: string | number | null;
 }
 interface TrafficStateRow {
   device_id: string;
   vehicle_count: number | null;
-  pending_vehicles: number | null;
+  overdue_vehicles: number | null;
   density: string | number | null;
   congestion: string | number | null;
-  travel_time: string | number | null;
+  tmax: string | number | null;
   state: string;
   online: boolean | null;
   last_seen: string | null;
@@ -306,32 +323,51 @@ export function mapState(row: StateRow): LightingState {
   };
 }
 
-export function mapTelemetry(row: TelemetryRow): TelemetrySample {
-  return {
-    ts: Date.parse(row.ts),
-    lux: toNum(row.lux) ?? undefined,
-    brightness: toNum(row.brightness) ?? undefined,
-    presence: row.presence === null ? undefined : Number(row.presence),
-    power: toNum(row.power) ?? undefined,
-    flow: toNum(row.flow) ?? undefined,
-    pressure: toNum(row.pressure) ?? undefined,
-    fillLevel: toNum(row.fill_level) ?? undefined,
-    vehicles: toNum(row.vehicles) ?? undefined,
-    pendingVehicles: toNum(row.pending_vehicles) ?? undefined,
-    density: toNum(row.density) ?? undefined,
-    congestion: toNum(row.congestion) ?? undefined,
-    travelTime: toNum(row.travel_time) ?? undefined,
-  };
+export function mapTelemetryRow(table: TelemetryTable, raw: Record<string, unknown>): TelemetrySample {
+  const ts = Date.parse((raw as { ts?: string }).ts ?? "") || Date.now();
+  if (table === "lighting_telemetry") {
+    const r = raw as unknown as LightingTelRow;
+    return {
+      ts,
+      lux: toNum(r.lux) ?? undefined,
+      brightness: toNum(r.brightness) ?? undefined,
+      presence: r.presence === null || r.presence === undefined ? undefined : Number(r.presence),
+      night: r.night === null ? undefined : Boolean(r.night),
+      mode: r.mode ?? undefined,
+      lampFailure: r.lamp_failure === null ? undefined : Boolean(r.lamp_failure),
+    };
+  }
+  if (table === "traffic_telemetry") {
+    const r = raw as unknown as TrafficTelRow;
+    return {
+      ts,
+      state: r.state ?? undefined,
+      vehicleCount: r.vehicle_count ?? undefined,
+      density: toNum(r.density) ?? undefined,
+      overdueVehicles: r.overdue_vehicles ?? undefined,
+      tmax: toNum(r.tmax) ?? undefined,
+    };
+  }
+  if (table === "water_telemetry") {
+    const r = raw as unknown as WaterTelRow;
+    return {
+      ts,
+      flow: toNum(r.flow) ?? undefined,
+      pressure: toNum(r.pressure) ?? undefined,
+      leakage: r.leakage === null || r.leakage === undefined ? undefined : Boolean(r.leakage),
+    };
+  }
+  const r = raw as unknown as WasteTelRow;
+  return { ts, fillLevel: toNum(r.fill_level) ?? undefined };
 }
 
 export function mapTrafficState(row: TrafficStateRow): TrafficState {
   return {
     deviceId: row.device_id,
     vehicleCount: row.vehicle_count ?? 0,
-    pendingVehicles: row.pending_vehicles ?? 0,
+    overdueVehicles: row.overdue_vehicles ?? 0,
     density: toNum(row.density),
-    congestion: toNum(row.congestion),
-    travelTime: toNum(row.travel_time),
+    tmax: toNum(row.tmax),
     state: row.state,
     online: Boolean(row.online),
     lastSeen: toMs(row.last_seen) ?? Date.now(),
@@ -569,28 +605,34 @@ export async function fetchTelemetry(
   limit = 60
 ): Promise<Record<string, TelemetrySample[]>> {
   if (!supabase || !orgId || !deviceIds.length) return {};
-  const { data, error } = await supabase
-    .from("device_telemetry")
-    .select(
-      "device_id, ts, lux, brightness, presence, power, flow, pressure, fill_level, vehicles, pending_vehicles, density, congestion, travel_time"
-    )
-    .eq("org_id", orgId)
-    .in("device_id", deviceIds)
-    .order("ts", { ascending: false })
-    .limit(800);
-  if (error) throw error;
 
+  // Read each service's own history table (exact ESP32 payload shapes).
+  const tables: TelemetryTable[] = ["lighting_telemetry", "traffic_telemetry", "water_telemetry", "waste_telemetry"];
   const grouped = new Map<string, TelemetrySample[]>();
-  for (const raw of data ?? []) {
-    const r = raw as TelemetryRow;
-    const s = mapTelemetry(r);
-    const arr = grouped.get(r.device_id) ?? [];
-    arr.push(s);
-    grouped.set(r.device_id, arr);
-  }
+
+  await Promise.all(
+    tables.map(async (table) => {
+      const { data, error } = await supabase!
+        .from(table)
+        .select("device_id, ts, *")
+        .eq("org_id", orgId)
+        .in("device_id", deviceIds)
+        .order("ts", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      for (const raw of data ?? []) {
+        const s = mapTelemetryRow(table, raw as Record<string, unknown>);
+        const arr = grouped.get((raw as { device_id: string }).device_id) ?? [];
+        arr.push(s);
+        grouped.set((raw as { device_id: string }).device_id, arr);
+      }
+    })
+  );
+
   const out: Record<string, TelemetrySample[]> = {};
   for (const [id, samples] of grouped) {
-    out[id] = samples.reverse().slice(-limit);
+    // Merge all sources chronologically (ascending), keep the most recent tail.
+    out[id] = samples.sort((a, b) => a.ts - b.ts).slice(-limit);
   }
   return out;
 }

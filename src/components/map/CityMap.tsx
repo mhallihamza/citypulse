@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpRight, MapPinOff, X } from "lucide-react";
-import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket } from "@/lib/types";
+import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket, TrafficState, WaterState } from "@/lib/types";
 import { ENTITY_STATUS_COLOR } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -107,9 +107,13 @@ function hashId(id: string): number {
 function stateMeta(
   device: Device,
   states: Record<string, LightingState> | undefined,
+  trafficStates: Record<string, TrafficState> | undefined,
+  waterStates: Record<string, WaterState> | undefined,
   telemetry: Record<string, TelemetrySample[]> | undefined
 ): { label: string; value: string }[] {
   const s = states?.[device.id];
+  const tS = trafficStates?.[device.id];
+  const wS = waterStates?.[device.id];
   const last = telemetry?.[device.id]?.slice(-1)[0];
   if (device.service === "lighting") {
     return [
@@ -123,19 +127,21 @@ function stateMeta(
   }
   if (device.service === "traffic") {
     return [
-      { label: "Vehicles", value: last?.vehicles != null ? String(last.vehicles) : "—" },
-      { label: "Pending", value: last?.pendingVehicles != null ? String(last.pendingVehicles) : "—" },
-      { label: "Density", value: last?.density != null ? Number(last.density).toFixed(1) : "—" },
-      { label: "Congestion", value: last?.congestion != null ? `${Number(last.congestion).toFixed(0)}%` : "—" },
-      { label: "Travel time", value: last?.travelTime != null ? `${Number(last.travelTime).toFixed(0)}s` : "—" },
-      { label: "Status", value: device.status.toUpperCase() },
+      { label: "Online", value: tS ? (tS.online ? "Yes" : "No") : device.online ? "Yes" : "Unknown" },
+      { label: "State", value: tS?.state ?? device.status.toUpperCase() },
+      { label: "Vehicles", value: last?.vehicleCount != null ? String(last.vehicleCount) : tS?.vehicleCount != null ? String(tS.vehicleCount) : "—" },
+      { label: "Overdue", value: last?.overdueVehicles != null ? String(last.overdueVehicles) : tS?.overdueVehicles != null ? String(tS.overdueVehicles) : "—" },
+      { label: "Density", value: last?.density != null ? Number(last.density).toFixed(1) : tS?.density != null ? Number(tS.density).toFixed(1) : "—" },
+      { label: "T-max", value: last?.tmax != null ? `${Number(last.tmax).toFixed(0)}s` : tS?.tmax != null ? `${Number(tS.tmax).toFixed(0)}s` : "—" },
     ];
   }
   if (device.service === "water") {
     return [
-      { label: "Flow", value: last?.flow != null ? `${Number(last.flow).toFixed(1)} L/s` : "—" },
-      { label: "Pressure", value: last?.pressure != null ? `${Number(last.pressure).toFixed(2)} bar` : "—" },
-      { label: "Status", value: device.status.toUpperCase() },
+      { label: "Online", value: wS ? (wS.online ? "Yes" : "No") : device.online ? "Yes" : "Unknown" },
+      { label: "State", value: wS?.state ?? device.status.toUpperCase() },
+      { label: "Flow", value: wS?.flow != null ? `${Number(wS.flow).toFixed(1)} L/s` : last?.flow != null ? `${Number(last.flow).toFixed(1)} L/s` : "—" },
+      { label: "Pressure", value: wS?.pressure != null ? `${Number(wS.pressure).toFixed(2)} bar` : last?.pressure != null ? `${Number(last.pressure).toFixed(2)} bar` : "—" },
+      { label: "Leakage", value: wS ? (wS.leakage ? "LEAK" : "None") : "—" },
     ];
   }
   return [{ label: "Status", value: device.status.toUpperCase() }];
@@ -146,6 +152,8 @@ interface CityMapProps {
   events?: CityEvent[];
   tickets?: Ticket[];
   states?: Record<string, LightingState>;
+  trafficStates?: Record<string, TrafficState>;
+  waterStates?: Record<string, WaterState>;
   telemetry?: Record<string, TelemetrySample[]>;
   serviceFilter?: MapServiceFilter;
   layers?: CityMapLayers;
@@ -162,6 +170,8 @@ export function CityMap({
   events = [],
   tickets = [],
   states,
+  trafficStates,
+  waterStates,
   telemetry,
   serviceFilter = "all",
   layers = { devices: true, infrastructure: true, events: true, tickets: true },
@@ -281,7 +291,7 @@ export function CityMap({
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-            {stateMeta(selectedDevice, states, telemetry).map((m) => (
+            {stateMeta(selectedDevice, states, trafficStates, waterStates, telemetry).map((m) => (
               <div key={m.label}>
                 <div className="text-[10px] uppercase tracking-wide text-ink-400">{m.label}</div>
                 <div className="tabular font-semibold">{m.value}</div>
