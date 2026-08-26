@@ -568,10 +568,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       password,
       options: {
         data: { full_name: fullName },
-        // Send the user back to the app (login screen) after they click the
-        // confirmation link. The origin must also be listed under
+        // Land email links on the dedicated callback screen: it consumes the
+        // token, then routes straight to /onboarding (or /app when the account
+        // already has an organization). The origin must also be listed under
         // Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs.
-        emailRedirectTo: `${window.location.origin}/login`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
     if (error) throw error;

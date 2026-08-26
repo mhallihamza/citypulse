@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck, Wifi, Zap } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Logo } from "@/components/ui/Logo";
@@ -59,11 +59,14 @@ export function AuthLeftPanel() {
 export function Login() {
   const { signIn, authUser, booting } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<string>(
+    () => (location.state as { authNotice?: string } | null)?.authNotice ?? ""
+  );
   const [busy, setBusy] = useState(false);
 
   // Supabase redirects back with #error=access_denied&error_code=otp_expired

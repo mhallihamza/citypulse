@@ -69,7 +69,7 @@ export function Onboarding() {
           <h2 className="font-display text-2xl font-bold text-ink-950">Set up your workspace</h2>
           <p className="mt-1 text-sm leading-relaxed text-ink-500">
             Welcome{authUser.email ? `, ${authUser.email}` : ""}. CITYPULSE is a multi-service platform —
-            Lighting is live today; Water, Waste and Traffic activate later.
+            Lighting, Water and Traffic are live today; Waste activates later.
           </p>
 
           <div className="mt-6 grid grid-cols-2 gap-2">

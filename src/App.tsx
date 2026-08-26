@@ -15,6 +15,7 @@ import { AboutPage } from "@/pages/public/About";
 import { Login } from "@/pages/auth/Login";
 import { Register } from "@/pages/auth/Register";
 import { Onboarding } from "@/pages/auth/Onboarding";
+import { AuthCallback } from "@/pages/auth/AuthCallback";
 // App — City Overview
 import { Dashboard } from "@/pages/app/Dashboard";
 import { CityMapPage } from "@/pages/app/CityMapPage";
@@ -165,6 +166,7 @@ export default function App() {
         <Route path="/login" element={hasSupabase ? <Login /> : <NeedsConfig />} />
         <Route path="/register" element={hasSupabase ? <Register /> : <NeedsConfig />} />
         <Route path="/onboarding" element={hasSupabase ? <Onboarding /> : <NeedsConfig />} />
+        <Route path="/auth/callback" element={hasSupabase ? <AuthCallback /> : <NeedsConfig />} />
 
         {/* Operations platform */}
         <Route
