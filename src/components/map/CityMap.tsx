@@ -259,7 +259,7 @@ export function CityMap({
 
   return (
     <div className={cn("relative overflow-hidden rounded-xl border", dark ? "map-canvas border-ink-800" : "map-canvas-light border-ink-100", className)}>
-      <svg viewBox="0 0 1000 640" className="h-full w-full" preserveAspectRatio="xMidYMid slice">
+      <svg viewBox="0 0 1000 640" className="h-full w-full" preserveAspectRatio="xMidYMid meet">
         {layers.infrastructure && <Infrastructure dark={dark} />}
 
         {/* Device markers — placed ONLY from real coordinates */}
