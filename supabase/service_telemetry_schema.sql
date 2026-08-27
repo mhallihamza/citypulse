@@ -187,8 +187,19 @@ begin
             (to_jsonb(new) ->> 'pending_vehicles')::int,
             (to_jsonb(new) ->> 'travel_time')::numeric);
   elsif svc = 'water' then
-    insert into water_telemetry (org_id, device_id, ts, flow, pressure)
-    values (new.org_id, new.device_id, coalesce(new.ts, now()), new.flow, new.pressure);
+    -- ESP32 water payload: sensor_status/state/pressure/reference_pressure/
+    -- pressure_drop/pressure_drop_percent arrive via legacy compat columns
+    -- (added by water_esp32_schema.sql); jsonb picks tolerate older shapes.
+    insert into water_telemetry (org_id, device_id, ts, flow, pressure,
+                                 sensor_status, state, reference_pressure,
+                                 pressure_drop, pressure_drop_percent)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()),
+            new.flow, new.pressure,
+            (to_jsonb(new) ->> 'sensor_status'),
+            (to_jsonb(new) ->> 'state'),
+            (to_jsonb(new) ->> 'reference_pressure')::numeric,
+            (to_jsonb(new) ->> 'pressure_drop')::numeric,
+            (to_jsonb(new) ->> 'pressure_drop_percent')::numeric);
   elsif svc = 'waste' then
     insert into waste_telemetry (org_id, device_id, ts, fill_level)
     values (new.org_id, new.device_id, coalesce(new.ts, now()), new.fill_level);
@@ -215,8 +226,15 @@ select t.org_id, t.device_id, t.ts, t.vehicles, t.density, t.pending_vehicles, t
 from device_telemetry t join devices d on d.id = t.device_id and d.service = 'traffic'
 where not exists (select 1 from traffic_telemetry g where g.device_id = t.device_id and g.ts = t.ts);
 
-insert into water_telemetry (org_id, device_id, ts, flow, pressure)
-select t.org_id, t.device_id, t.ts, t.flow, t.pressure
+insert into water_telemetry (org_id, device_id, ts, flow, pressure,
+                             sensor_status, state, reference_pressure,
+                             pressure_drop, pressure_drop_percent)
+select t.org_id, t.device_id, t.ts, t.flow, t.pressure,
+       (to_jsonb(t) ->> 'sensor_status'),
+       (to_jsonb(t) ->> 'state'),
+       (to_jsonb(t) ->> 'reference_pressure')::numeric,
+       (to_jsonb(t) ->> 'pressure_drop')::numeric,
+       (to_jsonb(t) ->> 'pressure_drop_percent')::numeric
 from device_telemetry t join devices d on d.id = t.device_id and d.service = 'water'
 where not exists (select 1 from water_telemetry w where w.device_id = t.device_id and w.ts = t.ts);
 
@@ -236,9 +254,9 @@ where not exists (select 1 from waste_telemetry s where s.device_id = t.device_i
 --   insert into traffic_telemetry (org_id, device_id, state, vehicle_count, density, overdue_vehicles, tmax)
 --   values (...);
 --
--- Water ESP32 payload { flow, pressure, leakage, state }:
---   insert into water_telemetry (org_id, device_id, flow, pressure, leakage, state)
---   values (...);
+-- Water ESP32 { sensor_status, state, pressure, reference_pressure, pressure_drop, pressure_drop_percent }:
+--   insert into water_telemetry (org_id, device_id, sensor_status, state, pressure, reference_pressure,
+--                                pressure_drop, pressure_drop_percent) values (...);
 --
 -- Waste (future): insert into waste_telemetry (org_id, device_id, fill_level, state) values (...);
 --

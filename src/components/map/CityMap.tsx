@@ -138,10 +138,11 @@ function stateMeta(
   if (device.service === "water") {
     return [
       { label: "Online", value: wS ? (wS.online ? "Yes" : "No") : device.online ? "Yes" : "Unknown" },
-      { label: "State", value: wS?.state ?? device.status.toUpperCase() },
-      { label: "Flow", value: wS?.flow != null ? `${Number(wS.flow).toFixed(1)} L/s` : last?.flow != null ? `${Number(last.flow).toFixed(1)} L/s` : "—" },
-      { label: "Pressure", value: wS?.pressure != null ? `${Number(wS.pressure).toFixed(2)} bar` : last?.pressure != null ? `${Number(last.pressure).toFixed(2)} bar` : "—" },
-      { label: "Leakage", value: wS ? (wS.leakage ? "LEAK" : "None") : "—" },
+      { label: "State", value: wS?.state ?? last?.state ?? device.status.toUpperCase() },
+      { label: "Sensor", value: wS?.sensorStatus ?? last?.sensorStatus ?? "—" },
+      { label: "Pressure", value: wS?.pressure != null ? `${Number(wS.pressure).toFixed(2)}` : last?.pressure != null ? Number(last.pressure).toFixed(2) : "—" },
+      { label: "Ref pressure", value: wS?.referencePressure != null ? `${Number(wS.referencePressure).toFixed(0)}` : last?.referencePressure != null ? Number(last.referencePressure).toFixed(0) : "—" },
+      { label: "Drop %", value: wS?.pressureDropPercent != null ? `${Number(wS.pressureDropPercent).toFixed(2)}%` : last?.pressureDropPercent != null ? `${Number(last.pressureDropPercent).toFixed(2)}%` : "—" },
     ];
   }
   return [{ label: "Status", value: device.status.toUpperCase() }];

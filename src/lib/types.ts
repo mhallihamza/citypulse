@@ -117,10 +117,16 @@ export interface TrafficState {
 /** Live operational state for a water device (water_states table). */
 export interface WaterState {
   deviceId: string;
-  flow: number | null; // L/s
-  pressure: number | null; // bar
+  // Real ESP32 vocabulary (citypulse/water/telemetry)
+  state: string; // NORMAL | MEDIUM_LEAK | BLOCKAGE | ...
+  sensorStatus: string | null; // e.g. "OK"
+  pressure: number | null;
+  referencePressure: number | null;
+  pressureDrop: number | null;
+  pressureDropPercent: number | null;
+  // Legacy columns preserved for backward compatibility
+  flow: number | null;
   leakage: boolean;
-  state: "NORMAL" | "LEAK" | "LOW_PRESSURE" | "OFFLINE" | string;
   online: boolean;
   lastSeen: number;
 }
@@ -141,7 +147,11 @@ export interface TelemetrySample {
   density?: number;
   overdueVehicles?: number;
   tmax?: number;
-  // water_telemetry
+  // water_telemetry (ESP32 payload)
+  sensorStatus?: string;
+  referencePressure?: number;
+  pressureDrop?: number;
+  pressureDropPercent?: number;
   flow?: number;
   pressure?: number;
   leakage?: boolean;
@@ -167,6 +177,11 @@ export interface CityEvent {
   createdAt: number;
   acknowledgedAt: number | null;
   resolvedAt: number | null;
+  // ESP32 event payload extensions (shared events table)
+  previousState?: string | null;
+  currentState?: string | null;
+  sensorStatus?: string | null;
+  eventTs?: number | null;
 }
 
 export interface TicketComment {

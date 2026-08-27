@@ -1,3 +1,0 @@
-TABLE profiles HTTP 404 BODY 
-TABLE organizations EXISTS rows=0
-TABLE devices EXISTS rows=0

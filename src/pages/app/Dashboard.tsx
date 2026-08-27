@@ -98,7 +98,7 @@ export function Dashboard() {
                         <>
                           <MiniStat label="Points" value={String(wStats.total)} />
                           <MiniStat label="Online" value={String(wStats.online)} tone={wStats.online > 0 ? "text-live-600" : undefined} />
-                          <MiniStat label="Leaks" value={String(wStats.leaks)} tone={wStats.leaks > 0 ? "text-red-600" : undefined} />
+                          <MiniStat label="Anomalies" value={String(wStats.anomalies)} tone={wStats.anomalies > 0 ? "text-red-600" : undefined} />
                           <MiniStat label="Open tickets" value={String(wStats.openTickets)} />
                         </>
                       )}

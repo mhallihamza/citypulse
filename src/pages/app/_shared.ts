@@ -103,14 +103,17 @@ export interface WaterStats {
   total: number;
   online: number;
   offline: number;
-  leaks: number; // devices with leakage = true
+  anomalies: number; // devices whose live ESP32 state is anything other than NORMAL (e.g. MEDIUM_LEAK, BLOCKAGE)
   openTickets: number;
 }
 
 export function waterStats(devices: Device[], waterStates: Record<string, WaterState>, tickets: Ticket[]): WaterStats {
   const fleet = devices.filter((d) => d.service === "water");
   const online = fleet.filter((d) => waterStates[d.id]?.online).length;
-  const leaks = fleet.filter((d) => waterStates[d.id]?.leakage).length;
+  const anomalies = fleet.filter((d) => {
+    const st = String(waterStates[d.id]?.state ?? "").trim().toUpperCase();
+    return st !== "" && st !== "NORMAL";
+  }).length;
   const openTickets = tickets.filter((t) => t.service === "water" && t.status !== "resolved").length;
-  return { fleet, total: fleet.length, online, offline: fleet.length - online, leaks, openTickets };
+  return { fleet, total: fleet.length, online, offline: fleet.length - online, anomalies, openTickets };
 }

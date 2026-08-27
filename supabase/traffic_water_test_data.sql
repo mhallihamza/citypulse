@@ -1,7 +1,8 @@
 -- ============================================================================
 -- CITYPULSE — TRAFFIC + WATER REAL-DATA VERIFICATION WORKFLOW
 -- ============================================================================
--- Run AFTER supabase/traffic_water_schema.sql. Execute section by section in
+-- Run AFTER: traffic_water_schema.sql, service_telemetry_schema.sql,
+-- water_esp32_schema.sql (all idempotent). Execute section by section in
 -- the Supabase SQL editor and watch the React dashboards update live (the app
 -- subscribes via Supabase Realtime; no page refresh is required).
 -- ============================================================================
@@ -47,8 +48,8 @@ where d.service = 'traffic' and d.device_key = 'T-001';
 --             -> React /app/traffic updates instantly via Realtime
 -- ----------------------------------------------------------------------------
 update traffic_states s
-set vehicle_count = 84, pending_vehicles = 6, density = 34.5,
-    congestion = 72, travel_time = 245, state = 'CONGESTED',
+set vehicle_count = 84, overdue_vehicles = 6, density = 34.5,
+    congestion = 72, tmax = 245, state = 'CONGESTED',
     online = true, last_seen = now()
 from devices d
 where d.id = s.device_id and d.service = 'traffic' and d.device_key = 'T-001';
@@ -65,54 +66,57 @@ select d.org_id, 'traffic', d.id, d.device_key,
 from devices d where d.service = 'traffic' and d.device_key = 'T-001';
 
 -- ----------------------------------------------------------------------------
--- SECTION 5 — WATER telemetry history
+-- SECTION 5 — WATER telemetry history (actual ESP32 payload shape):
+--             { sensor_status, state, pressure, reference_pressure,
+--               pressure_drop, pressure_drop_percent }  -> water_telemetry.
+--             Pressure drop escalates until the device classifies MEDIUM_LEAK.
 -- ----------------------------------------------------------------------------
-insert into device_telemetry (org_id, device_id, ts, flow, pressure)
-select d.org_id, d.id, now() - (i || ' minutes')::interval,
-       10.5 + (i % 6) * 1.3,       -- flow L/s
-       3.4 + (i % 4) * 0.35        -- pressure bar
+insert into water_telemetry (org_id, device_id, ts, sensor_status, state,
+                             pressure, reference_pressure, pressure_drop, pressure_drop_percent)
+select d.org_id, d.id, now() - ((13 - i) || ' minutes')::interval,
+       'OK',
+       case when i > 9 then 'MEDIUM_LEAK' else null end,   -- state NULL until device classifies
+       1100 - (i * 3.2)::numeric,      -- pressure (device units, not bar)
+       1100,                           -- reference_pressure
+       (i * 3.2)::numeric,             -- pressure_drop
+       round((i * 3.2 / 11.0)::numeric, 2)  -- pressure_drop_percent
 from devices d
 cross join generate_series(1, 12) as i
 where d.service = 'water' and d.device_key = 'W-101';
 
 -- ----------------------------------------------------------------------------
--- SECTION 6 — WATER current state (normal)
+-- SECTION 6 — WATER current state (latest reading -> water_states)
+--             -> React /app/water updates instantly via Realtime
 -- ----------------------------------------------------------------------------
 update water_states s
-set flow = 14.2, pressure = 4.6, leakage = false, state = 'NORMAL',
+set sensor_status = 'OK', state = 'MEDIUM_LEAK',
+    pressure = 1061.6, reference_pressure = 1100,
+    pressure_drop = 38.4, pressure_drop_percent = 3.49,
     online = true, last_seen = now()
 from devices d
 where d.id = s.device_id and d.service = 'water' and d.device_key = 'W-101';
 
 -- ----------------------------------------------------------------------------
--- SECTION 7 — simulate a real LEAK: flip the water state + raise an event
---             -> React /app/water shows LEAK instantly via Realtime
+-- SECTION 7 — WATER event on citypulse/water/events -> ONE row in the SHARED
+--             events table (unified columns: previous_state/current_state/
+--             sensor_status/payload). Exactly the documented ESP32 event shape:
+--             { type: STATE_CHANGED, previous_state: MEDIUM_LEAK,
+--               current_state: BLOCKAGE, ... }
 -- ----------------------------------------------------------------------------
 update water_states s
-set flow = 21.8, pressure = 2.1, leakage = true, state = 'LEAK', last_seen = now()
+set state = 'BLOCKAGE', pressure = 809.32, reference_pressure = 1100,
+    pressure_drop = 290.68, pressure_drop_percent = 26.43, last_seen = now()
 from devices d
 where d.id = s.device_id and d.service = 'water' and d.device_key = 'W-101';
 
-insert into events (org_id, service, device_id, device_key, title, event_type, severity, status, detail, source)
+insert into events (org_id, service, device_id, device_key, title, event_type,
+                    severity, status, detail, source, ts,
+                    previous_state, current_state, sensor_status, payload)
 select d.org_id, 'water', d.id, d.device_key,
-       'Leakage detected at Pump Station 2',
-       'LEAKAGE_DETECTED', 'critical', 'new',
-       'Pressure dropped to 2.1 bar while flow rose to 21.8 L/s — probable pipe leak.',
-       'fusion_ai'
-from devices d where d.service = 'water' and d.device_key = 'W-101';
-
--- ----------------------------------------------------------------------------
--- SECTION 8 — restore the leak (LEAK_REPAIRED, like LAMP_RESTORED for lighting)
--- ----------------------------------------------------------------------------
-update water_states s
-set flow = 13.9, pressure = 4.4, leakage = false, state = 'NORMAL', last_seen = now()
-from devices d
-where d.id = s.device_id and d.service = 'water' and d.device_key = 'W-101';
-
-insert into events (org_id, service, device_id, device_key, title, event_type, severity, status, detail, source)
-select d.org_id, 'water', d.id, d.device_key,
-       'Leak repaired at Pump Station 2',
-       'LEAK_REPAIRED', 'info', 'resolved',
-       'Pressure restored to 4.4 bar; flow normalized at 13.9 L/s.',
-       'fusion_ai'
+       'Water state changed at Pump Station 2',
+       'STATE_CHANGED', 'critical', 'new',
+       'Pressure dropped 26.43% below the 1100 reference — flow obstruction detected.',
+       'fusion_ai', now(),
+       'MEDIUM_LEAK', 'BLOCKAGE', 'OK',
+       '{"service":"water","device_id":"water-001","sensor_status":"OK","type":"STATE_CHANGED","previous_state":"MEDIUM_LEAK","current_state":"BLOCKAGE","pressure":809.32,"reference_pressure":1100,"pressure_drop":290.68,"pressure_drop_percent":26.43}'::jsonb
 from devices d where d.service = 'water' and d.device_key = 'W-101';

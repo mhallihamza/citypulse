@@ -134,9 +134,22 @@ create table if not exists events (
   source text not null default 'fusion_ai',
   acknowledged_at timestamptz,
   resolved_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Unified cross-service event fields (Water ESP32 payloads; type = event_type)
+  ts timestamptz,
+  previous_state text,
+  current_state text,
+  sensor_status text,
+  payload jsonb
 );
 create index if not exists idx_events_created on events (org_id, created_at desc);
+
+-- Guarded upgrade for databases created before the unified-event fields existed.
+alter table events add column if not exists ts timestamptz;
+alter table events add column if not exists previous_state text;
+alter table events add column if not exists current_state text;
+alter table events add column if not exists sensor_status text;
+alter table events add column if not exists payload jsonb;
 
 -- ----------------------------------------------------------------------------
 -- Tickets
@@ -224,6 +237,10 @@ create table if not exists water_states (
   device_id uuid primary key references devices(id) on delete cascade,
   flow numeric default 0,
   pressure numeric default 0,
+  reference_pressure numeric default 0,
+  pressure_drop numeric default 0,
+  pressure_drop_percent numeric default 0,
+  sensor_status text,
   leakage boolean not null default false,
   state text not null default 'NORMAL',
   online boolean not null default false,
@@ -232,6 +249,12 @@ create table if not exists water_states (
   updated_at timestamptz not null default now()
 );
 create index if not exists idx_water_states_org on water_states (org_id);
+
+-- Guarded upgrade: Water ESP32 fields for states tables created before them.
+alter table water_states add column if not exists reference_pressure numeric default 0;
+alter table water_states add column if not exists pressure_drop numeric default 0;
+alter table water_states add column if not exists pressure_drop_percent numeric default 0;
+alter table water_states add column if not exists sensor_status text;
 
 -- ----------------------------------------------------------------------------
 -- Device commands
@@ -826,3 +849,192 @@ do $$ begin
     alter publication supabase_realtime add table public.water_states;
   end if;
 end $$;
+
+-- ----------------------------------------------------------------------------
+-- PER-SERVICE TELEMETRY HISTORY (lighting / traffic / water / waste)
+-- Actual ESP32 payload shapes. CURRENT STATE lives in *_states above; these
+-- tables hold HISTORICAL samples for charts. Legacy shared device_telemetry
+-- remains a valid ingestion path via the route_service_telemetry() bridge.
+-- ----------------------------------------------------------------------------
+create table if not exists lighting_telemetry (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid not null references devices(id) on delete cascade,
+  ts timestamptz not null default now(),
+  lux numeric, brightness numeric, presence boolean,
+  night boolean, mode text, lamp_failure boolean
+);
+create table if not exists traffic_telemetry (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid not null references devices(id) on delete cascade,
+  ts timestamptz not null default now(),
+  state text, vehicle_count integer, density numeric,
+  overdue_vehicles integer,   -- vehicles past T-max between IR1 and IR2
+  tmax numeric                -- max allowed travel time on the segment (s)
+);
+create table if not exists water_telemetry (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid not null references devices(id) on delete cascade,
+  ts timestamptz not null default now(),
+  sensor_status text, state text,
+  pressure numeric, reference_pressure numeric,
+  pressure_drop numeric, pressure_drop_percent numeric,
+  flow numeric,               -- legacy field kept for backward compatibility
+  created_at timestamptz not null default now()
+);
+create table if not exists waste_telemetry (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid not null references devices(id) on delete cascade,
+  ts timestamptz not null default now(),
+  fill_level numeric, state text
+);
+-- Row-level security — organization isolation on every telemetry history table
+alter table lighting_telemetry enable row level security;
+alter table traffic_telemetry  enable row level security;
+alter table water_telemetry    enable row level security;
+alter table waste_telemetry    enable row level security;
+
+drop policy if exists "lighting_tel: org select" on lighting_telemetry;
+create policy "lighting_tel: org select" on lighting_telemetry
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "lighting_tel: org insert" on lighting_telemetry;
+create policy "lighting_tel: org insert" on lighting_telemetry
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+
+drop policy if exists "traffic_tel: org select" on traffic_telemetry;
+create policy "traffic_tel: org select" on traffic_telemetry
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "traffic_tel: org insert" on traffic_telemetry;
+create policy "traffic_tel: org insert" on traffic_telemetry
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+
+drop policy if exists "water_tel: org select" on water_telemetry;
+create policy "water_tel: org select" on water_telemetry
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "water_tel: org insert" on water_telemetry;
+create policy "water_tel: org insert" on water_telemetry
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+
+drop policy if exists "waste_tel: org select" on waste_telemetry;
+create policy "waste_tel: org select" on waste_telemetry
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "waste_tel: org insert" on waste_telemetry;
+create policy "waste_tel: org insert" on waste_telemetry
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+
+-- Realtime publication for the four telemetry history tables (guarded)
+do $$ begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'lighting_telemetry') then
+    alter publication supabase_realtime add table public.lighting_telemetry;
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'traffic_telemetry') then
+    alter publication supabase_realtime add table public.traffic_telemetry;
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'water_telemetry') then
+    alter publication supabase_realtime add table public.water_telemetry;
+  end if;
+end $$;
+do $$ begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'waste_telemetry') then
+    alter publication supabase_realtime add table public.waste_telemetry;
+  end if;
+end $$;
+
+-- Bridge trigger: legacy shared ingestion keeps working. Any row inserted into
+-- device_telemetry is copied into the correct per-service table according to
+-- devices.service. Fusion AI can keep writing to either path.
+create or replace function route_service_telemetry() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare svc text;
+begin
+  select d.service into svc from devices d where d.id = new.device_id;
+  if svc = 'lighting' then
+    insert into lighting_telemetry (org_id, device_id, ts, lux, brightness, presence)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()), new.lux, new.brightness, new.presence);
+  elsif svc = 'traffic' then
+    insert into traffic_telemetry (org_id, device_id, ts, vehicle_count, density, overdue_vehicles, tmax)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()),
+            new.vehicles, new.density,
+            (to_jsonb(new) ->> 'pending_vehicles')::int,
+            (to_jsonb(new) ->> 'travel_time')::numeric);
+  elsif svc = 'water' then
+    -- ESP32 water payload: sensor_status/state/reference_pressure/pressure_drop/
+    -- pressure_drop_percent arrive via legacy compat columns; jsonb picks
+    -- tolerate older row shapes that never carried them.
+    insert into water_telemetry (org_id, device_id, ts, flow, pressure,
+                                 sensor_status, state, reference_pressure,
+                                 pressure_drop, pressure_drop_percent)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()),
+            new.flow, new.pressure,
+            (to_jsonb(new) ->> 'sensor_status'),
+            (to_jsonb(new) ->> 'state'),
+            (to_jsonb(new) ->> 'reference_pressure')::numeric,
+            (to_jsonb(new) ->> 'pressure_drop')::numeric,
+            (to_jsonb(new) ->> 'pressure_drop_percent')::numeric);
+  elsif svc = 'waste' then
+    insert into waste_telemetry (org_id, device_id, ts, fill_level)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()), new.fill_level);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists telemetry_route_to_service on device_telemetry;
+create trigger telemetry_route_to_service
+  after insert on device_telemetry
+  for each row execute function route_service_telemetry();
+
+-- One-time backfill of EXISTING history so charts keep their past data.
+-- Guarded with NOT EXISTS on (device_id, ts) — re-runs never duplicate rows.
+insert into lighting_telemetry (org_id, device_id, ts, lux, brightness, presence)
+select t.org_id, t.device_id, t.ts, t.lux, t.brightness, t.presence
+from device_telemetry t join devices d on d.id = t.device_id and d.service = 'lighting'
+where not exists (select 1 from lighting_telemetry l where l.device_id = t.device_id and l.ts = t.ts);
+
+insert into traffic_telemetry (org_id, device_id, ts, vehicle_count, density, overdue_vehicles, tmax)
+select t.org_id, t.device_id, t.ts, t.vehicles, t.density, t.pending_vehicles, t.travel_time
+from device_telemetry t join devices d on d.id = t.device_id and d.service = 'traffic'
+where not exists (select 1 from traffic_telemetry g where g.device_id = t.device_id and g.ts = t.ts);
+
+insert into water_telemetry (org_id, device_id, ts, flow, pressure,
+                             sensor_status, state, reference_pressure,
+                             pressure_drop, pressure_drop_percent)
+select t.org_id, t.device_id, t.ts, t.flow, t.pressure,
+       (to_jsonb(t) ->> 'sensor_status'),
+       (to_jsonb(t) ->> 'state'),
+       (to_jsonb(t) ->> 'reference_pressure')::numeric,
+       (to_jsonb(t) ->> 'pressure_drop')::numeric,
+       (to_jsonb(t) ->> 'pressure_drop_percent')::numeric
+from device_telemetry t join devices d on d.id = t.device_id and d.service = 'water'
+where not exists (select 1 from water_telemetry w where w.device_id = t.device_id and w.ts = t.ts);
+
+insert into waste_telemetry (org_id, device_id, ts, fill_level)
+select t.org_id, t.device_id, t.ts, t.fill_level
+from device_telemetry t join devices d on d.id = t.device_id and d.service = 'waste'
+where not exists (select 1 from waste_telemetry s where s.device_id = t.device_id and s.ts = t.ts);
+
+-- ============================================================================
+-- FUSION AI — WRITE TARGETS GOING FORWARD (preferred primary path)
+-- ============================================================================
+-- Lighting ESP32 { lux, brightness, presence, night, mode, lamp_failure }:
+--   insert into lighting_telemetry (org_id, device_id, lux, brightness, presence, night, mode, lamp_failure) values (...);
+-- Traffic ESP32 { state, vehicle_count, density, overdue_vehicles, tmax }:
+--   insert into traffic_telemetry (org_id, device_id, state, vehicle_count, density, overdue_vehicles, tmax) values (...);
+-- Water ESP32 { sensor_status, state, pressure, reference_pressure, pressure_drop, pressure_drop_percent }:
+--   insert into water_telemetry (org_id, device_id, sensor_status, state, pressure, reference_pressure,
+--                                pressure_drop, pressure_drop_percent) values (...);
+-- Waste (future): insert into waste_telemetry (org_id, device_id, fill_level, state) values (...);
+--
+-- Legacy inserts into device_telemetry still work via the bridge trigger above
+-- (night/mode/lamp_failure have no legacy column and are only captured by the
+-- direct per-service path).

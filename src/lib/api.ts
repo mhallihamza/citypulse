@@ -133,6 +133,11 @@ interface WaterTelRow {
   flow: string | number | null;
   pressure: string | number | null;
   leakage: boolean | null;
+  state: string | null;
+  sensor_status: string | null;
+  reference_pressure: string | number | null;
+  pressure_drop: string | number | null;
+  pressure_drop_percent: string | number | null;
 }
 interface WasteTelRow {
   device_id: string;
@@ -156,6 +161,10 @@ interface WaterStateRow {
   pressure: string | number | null;
   leakage: boolean | null;
   state: string;
+  sensor_status: string | null;
+  reference_pressure: string | number | null;
+  pressure_drop: string | number | null;
+  pressure_drop_percent: string | number | null;
   online: boolean | null;
   last_seen: string | null;
 }
@@ -174,6 +183,13 @@ interface EventRow {
   acknowledged_at: string | null;
   resolved_at: string | null;
   created_at: string;
+  // ESP32 event extensions (unified events table)
+  previous_state: string | null;
+  current_state: string | null;
+  sensor_status: string | null;
+  ts: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  payload: Record<string, unknown> | null;
 }
 interface TicketRow {
   id: string;
@@ -355,6 +371,11 @@ export function mapTelemetryRow(table: TelemetryTable, raw: Record<string, unkno
       flow: toNum(r.flow) ?? undefined,
       pressure: toNum(r.pressure) ?? undefined,
       leakage: r.leakage === null || r.leakage === undefined ? undefined : Boolean(r.leakage),
+      state: r.state ?? undefined,
+      sensorStatus: r.sensor_status ?? undefined,
+      referencePressure: toNum(r.reference_pressure) ?? undefined,
+      pressureDrop: toNum(r.pressure_drop) ?? undefined,
+      pressureDropPercent: toNum(r.pressure_drop_percent) ?? undefined,
     };
   }
   const r = raw as unknown as WasteTelRow;
@@ -381,6 +402,10 @@ export function mapWaterState(row: WaterStateRow): WaterState {
     pressure: toNum(row.pressure),
     leakage: Boolean(row.leakage),
     state: row.state,
+    sensorStatus: row.sensor_status,
+    referencePressure: toNum(row.reference_pressure),
+    pressureDrop: toNum(row.pressure_drop),
+    pressureDropPercent: toNum(row.pressure_drop_percent),
     online: Boolean(row.online),
     lastSeen: toMs(row.last_seen) ?? Date.now(),
   };
@@ -401,6 +426,10 @@ export function mapEvent(row: EventRow): CityEvent {
     createdAt: Date.parse(row.created_at),
     acknowledgedAt: toMs(row.acknowledged_at),
     resolvedAt: toMs(row.resolved_at),
+    previousState: row.previous_state,
+    currentState: row.current_state,
+    sensorStatus: row.sensor_status,
+    eventTs: toMs(row.ts),
   };
 }
 

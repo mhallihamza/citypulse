@@ -13,7 +13,7 @@ import { timeAgo } from "@/lib/format";
 
 /**
  * WATER — real service backed by public.devices (service='water'),
- * water_states and device_telemetry. Every figure is read from Supabase.
+ * water_states and water_telemetry. Every figure is read from Supabase.
  */
 export function WaterPage() {
   const { devices, waterStates, telemetry, events, tickets, now } = useApp();
@@ -24,8 +24,8 @@ export function WaterPage() {
 
   // Live averages across ONLINE devices only (real values).
   const onlineFleet = stats.fleet.filter((d) => waterStates[d.id]?.online);
-  const avgFlow = onlineFleet.length > 0 ? onlineFleet.reduce((a, d) => a + Number(waterStates[d.id]?.flow ?? 0), 0) / onlineFleet.length : null;
   const avgPressure = onlineFleet.length > 0 ? onlineFleet.reduce((a, d) => a + Number(waterStates[d.id]?.pressure ?? 0), 0) / onlineFleet.length : null;
+  const avgDropPct = onlineFleet.length > 0 ? onlineFleet.reduce((a, d) => a + Number(waterStates[d.id]?.pressureDropPercent ?? 0), 0) / onlineFleet.length : null;
 
   return (
     <div>
@@ -34,8 +34,8 @@ export function WaterPage() {
         subtitle="Water flow, pressure and leak detection across your network."
         actions={
           <>
-            <Badge tone={stats.leaks > 0 ? "critical" : stats.offline > 0 ? "warning" : "success"} dot>
-              {stats.leaks > 0 ? `${stats.leaks} leak${stats.leaks === 1 ? "" : "s"}` : `${stats.online}/${stats.total} online`}
+            <Badge tone={stats.anomalies > 0 ? "critical" : stats.offline > 0 ? "warning" : "success"} dot>
+              {stats.anomalies > 0 ? `${stats.anomalies} anomal${stats.anomalies === 1 ? "y" : "ies"}` : `${stats.online}/${stats.total} online`}
             </Badge>
             <Link to="/app/water/devices">
               <Button size="sm">
@@ -64,9 +64,9 @@ export function WaterPage() {
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
             <Kpi label="Monitored points" value={stats.total} />
             <Kpi label="Online" value={stats.online} tone={stats.online > 0 ? "text-live-600" : undefined} />
-            <Kpi label="Avg flow" value={avgFlow != null ? `${avgFlow.toFixed(1)} L/s` : "—"} tone="text-pulse-600" />
-            <Kpi label="Avg pressure" value={avgPressure != null ? `${avgPressure.toFixed(2)} bar` : "—"} />
-            <Kpi label="Leaks detected" value={stats.leaks} tone={stats.leaks > 0 ? "text-red-600" : undefined} />
+            <Kpi label="Avg pressure" value={avgPressure != null ? avgPressure.toFixed(2) : "—"} />
+            <Kpi label="Avg drop %" value={avgDropPct != null ? `${avgDropPct.toFixed(2)}%` : "—"} tone={avgDropPct != null && avgDropPct > 0 ? "text-red-600" : undefined} />
+            <Kpi label="Anomalies" value={stats.anomalies} tone={stats.anomalies > 0 ? "text-red-600" : undefined} />
           </div>
 
           <div className="mt-6 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
@@ -85,9 +85,9 @@ export function WaterPage() {
                   <thead>
                     <tr className="border-b border-ink-100 bg-ink-50/60 text-left text-[11px] uppercase tracking-widest text-ink-400">
                       <th className="px-5 py-2.5 font-semibold">Point</th>
-                      <th className="px-3 py-2.5 font-semibold">Flow (L/s)</th>
-                      <th className="px-3 py-2.5 font-semibold">Pressure (bar)</th>
-                      <th className="px-3 py-2.5 font-semibold">Leakage</th>
+                      <th className="px-3 py-2.5 font-semibold">Pressure</th>
+                      <th className="px-3 py-2.5 font-semibold">Reference</th>
+                      <th className="px-3 py-2.5 font-semibold">Drop %</th>
                       <th className="px-3 py-2.5 font-semibold">State</th>
                       <th className="px-3 py-2.5 font-semibold">Last seen</th>
                       <th className="px-3 py-2.5 font-semibold">Status</th>
@@ -102,15 +102,13 @@ export function WaterPage() {
                             <Link to={`/app/water/devices/${d.id}`} className="font-mono text-[13px] font-semibold text-pulse-600 hover:underline">{d.deviceKey}</Link>
                             <div className="truncate text-[11px] text-ink-400">{d.displayName}</div>
                           </td>
-                          <td className="px-3 py-3 tabular text-ink-800">{s?.flow != null ? Number(s.flow).toFixed(1) : "—"}</td>
-                          <td className="px-3 py-3 tabular text-ink-600">{s?.pressure != null ? Number(s.pressure).toFixed(2) : "—"}</td>
-                          <td className="px-3 py-3">
-                            {s ? (
-                              s.leakage ? (
-                                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-700">LEAK</span>
-                              ) : (
-                                <span className="text-xs font-medium text-live-600">None</span>
-                              )
+                          <td className="px-3 py-3 tabular text-ink-800">{s?.pressure != null ? Number(s.pressure).toFixed(2) : "—"}</td>
+                          <td className="px-3 py-3 tabular text-ink-600">{s?.referencePressure != null ? Number(s.referencePressure).toFixed(0) : "—"}</td>
+                          <td className="px-3 py-3 tabular">
+                            {s?.pressureDropPercent != null ? (
+                              <span className={Number(s.pressureDropPercent) > 0 ? "font-semibold text-red-600" : "text-live-600"}>
+                                {Number(s.pressureDropPercent).toFixed(2)}%
+                              </span>
                             ) : (
                               "—"
                             )}
@@ -148,7 +146,7 @@ export function WaterPage() {
                       <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${e.severity === "critical" ? "bg-red-500" : e.severity === "warning" ? "bg-amber-500" : "bg-pulse-500"}`} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-semibold text-ink-800">{e.title}</div>
-                        <div className="text-[11px] text-ink-400">{e.eventType} · {timeAgo(e.createdAt, now)}</div>
+                        <div className="text-[11px] text-ink-400">{e.eventType}{e.previousState && e.currentState ? ` · ${e.previousState} → ${e.currentState}` : ""} · {timeAgo(e.createdAt, now)}</div>
                       </div>
                       <Badge tone={e.severity === "critical" ? "critical" : e.severity === "warning" ? "warning" : "info"}>{e.severity}</Badge>
                     </div>
@@ -159,8 +157,8 @@ export function WaterPage() {
               <div className="rounded-xl border border-ink-100 bg-white p-4">
                 <div className="mb-1.5 text-[13px] font-semibold text-ink-800">Telemetry coverage</div>
                 <p className="text-xs leading-relaxed text-ink-400">
-                  {samples.filter((s) => Number.isFinite(Number(s.flow))).length} flow samples and{" "}
-                  {samples.filter((s) => Number.isFinite(Number(s.pressure))).length} pressure samples are stored in{" "}
+                  {samples.filter((s) => Number.isFinite(Number(s.pressure))).length} pressure samples and{" "}
+                  {samples.filter((s) => Number.isFinite(Number(s.pressureDropPercent))).length} pressure-drop readings are stored in{" "}
                   <span className="font-mono">water_telemetry</span>. Open a device to chart its history.
                 </p>
               </div>
