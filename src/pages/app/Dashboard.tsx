@@ -98,6 +98,7 @@ export function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {SERVICES.map((svc) => {
           const connected = serviceConnected(svc.key as ServiceId);
+          const h = health[svc.key as ServiceId];
           return (
             <Link key={svc.key} to={`/app/${svc.key}`} className="group">
               <Card className={cn("lift h-full p-4", !connected && "opacity-95")}>
@@ -119,12 +120,12 @@ export function Dashboard() {
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-0.5">
                       <span className="font-display text-[26px] font-bold leading-none tabular-nums text-ink-900">
-                        {health[svc.key].pct != null ? health[svc.key].pct.toFixed(1) : "—"}
+                        {h.pct != null ? h.pct.toFixed(1) : "—"}
                       </span>
-                      <span className={cn("text-base font-bold", health[svc.key].pct != null ? "text-ink-500" : "text-ink-300")}>%</span>
+                      <span className={cn("text-base font-bold", h.pct != null ? "text-ink-500" : "text-ink-300")}>%</span>
                     </div>
-                    <div className={cn("mt-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide", health[svc.key].tone)}>
-                      {health[svc.key].label} <ArrowUpRight className="h-3 w-3" />
+                    <div className={cn("mt-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide", h.tone)}>
+                      {h.label} <ArrowUpRight className="h-3 w-3" />
                     </div>
                   </div>
                   <Sparkline points={sparkSeries[svc.key]} color={SERVICE_CONFIG[svc.key].color} />
