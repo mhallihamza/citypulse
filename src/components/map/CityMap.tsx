@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowUpRight, MapPinOff, X } from "lucide-react";
 import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket, TrafficState, WasteState, WaterState } from "@/lib/types";
 import { ENTITY_STATUS_COLOR } from "@/lib/types";
@@ -94,22 +94,40 @@ function projectDevices(devices: Device[]): Map<string, { x: number; y: number }
   const spanLng = Math.max(maxLng - minLng, 1e-6);
   const PAD = 90;
 
-  for (const d of pts) {
+  // First pass — base projection (north up, min-max normalized to the canvas).
+  const base = pts.map((d) => {
     const nx = (d.longitude! - minLng) / spanLng; // 0..1
-    const ny = (d.latitude! - minLat) / spanLat; // 0..1 (north up)
-    const x = PAD + nx * (1000 - PAD * 2) + (out.size % 3) * 2;
-    const y = 60 + (1 - ny) * (600 - 120) + (out.size % 2) * 2;
-    // When every device shares one coordinate, spread deterministically by id hash.
-    const sameSpot = spanLat < 1e-6 && spanLng < 1e-6;
-    out.set(d.id, sameSpot ? { x: 200 + ((hashId(d.id) * 37) % 600), y: 140 + ((hashId(d.id) * 53) % 360) } : { x, y });
+    const ny = (d.latitude! - minLat) / spanLat; // 0..1
+    return { id: d.id, x: PAD + nx * (1000 - PAD * 2), y: 60 + (1 - ny) * (600 - 120) };
+  });
+
+  // Second pass — devices landing on the SAME spot (shared site, or every
+  // device holding one coordinate) are spread on a small deterministic ring so
+  // each marker stays individually visible and clickable. Ordering by device
+  // id keeps positions stable between renders.
+  const groups = new Map<string, { id: string; x: number; y: number }[]>();
+  for (const p of base) {
+    const key = `${Math.round(p.x)}:${Math.round(p.y)}`;
+    const arr = groups.get(key) ?? [];
+    arr.push(p);
+    groups.set(key, arr);
+  }
+  for (const arr of groups.values()) {
+    if (arr.length === 1) {
+      out.set(arr[0].id, { x: arr[0].x, y: arr[0].y });
+      continue;
+    }
+    const sorted = [...arr].sort((a, b) => a.id.localeCompare(b.id));
+    const radius = 16 + Math.min(sorted.length, 6) * 2;
+    sorted.forEach((p, i) => {
+      const angle = (i / sorted.length) * Math.PI * 2 - Math.PI / 2;
+      out.set(p.id, {
+        x: Math.min(980, Math.max(20, p.x + Math.cos(angle) * radius)),
+        y: Math.min(620, Math.max(20, p.y + Math.sin(angle) * radius)),
+      });
+    });
   }
   return out;
-}
-
-function hashId(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return h;
 }
 
 function stateMeta(
@@ -223,6 +241,16 @@ export function CityMap({
   const projected = useMemo(() => projectDevices(visibleDevices), [visibleDevices]);
   const selectedDevice = visibleDevices.find((d) => d.id === selected) ?? null;
   const incident = selectedDevice ? events.find((e) => e.deviceId === selectedDevice.id && e.status !== "resolved") : undefined;
+
+  // Devices WITHOUT real coordinates — never invented, but never silently hidden.
+  const unpositioned = useMemo(() => {
+    return devices.filter((d) => {
+      if (serviceFilter === "incidents") return d.status !== "normal" && (d.latitude == null || d.longitude == null);
+      if (serviceFilter !== "all" && d.service !== serviceFilter) return false;
+      return d.latitude == null || d.longitude == null;
+    });
+  }, [devices, serviceFilter]);
+  const [showMissing, setShowMissing] = useState(false);
 
   const select = (id: string) => {
     setSelected(id);
@@ -413,6 +441,51 @@ export function CityMap({
           </span>
         ))}
       </div>
+      )}
+
+      {/* Unpositioned devices — real devices lacking coordinates. Listed, never faked. */}
+      {unpositioned.length > 0 && (
+        <div className="absolute bottom-3 right-3 z-20 flex max-w-[250px] flex-col items-end gap-1.5">
+          {showMissing && (
+            <div
+              className={cn(
+                "w-full rounded-lg border p-2.5 shadow-sm",
+                dark ? "border-white/10 bg-ink-900/95 text-white" : "border-ink-100 bg-white/95 text-ink-700"
+              )}
+            >
+              <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">Missing coordinates</div>
+              <div className="mt-1 max-h-44 space-y-0.5 overflow-y-auto">
+                {unpositioned.map((d) => {
+                  const Ic = SERVICE_CONFIG[d.service].icon;
+                  return (
+                    <Link
+                      key={d.id}
+                      to={`/app/${d.service}/devices/${d.id}`}
+                      className={cn("flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] font-semibold", dark ? "hover:bg-white/10" : "hover:bg-ink-50")}
+                    >
+                      <Ic className="h-3 w-3 shrink-0" style={{ color: SERVICE_CONFIG[d.service].color }} />
+                      <span className="truncate">{d.deviceKey}</span>
+                      <span className="ml-auto text-[9px] uppercase opacity-50">{d.service}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+              <div className="mt-1.5 text-[10px] leading-snug opacity-60">
+                Add a location with latitude / longitude to place these devices on the map. Positions are never simulated.
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => setShowMissing((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold backdrop-blur transition-colors",
+              dark ? "border-white/15 bg-ink-950/70 text-white/80 hover:bg-ink-950/90" : "border-ink-200 bg-white/90 text-ink-600 shadow-sm hover:bg-white"
+            )}
+          >
+            <MapPinOff className="h-3 w-3" />
+            {unpositioned.length} without coordinates
+          </button>
+        </div>
       )}
     </div>
   );

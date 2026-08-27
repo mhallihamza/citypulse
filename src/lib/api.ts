@@ -800,12 +800,15 @@ export async function insertDevice(orgId: string, input: CreateDeviceInput): Pro
   const service = input.service ?? "lighting";
 
   let locationId: string | null = null;
-  if (input.locationLabel.trim()) {
+  const hasCoords = input.latitude != null && input.longitude != null;
+  // A location row is created when the user provided a label OR real
+  // coordinates — entering coordinates without a label must NOT be dropped.
+  if (input.locationLabel.trim() || hasCoords) {
     const { data: loc, error: locErr } = await supabase
       .from("locations")
       .insert({
         org_id: orgId,
-        label: input.locationLabel.trim(),
+        label: input.locationLabel.trim() || `${input.deviceKey.trim().toUpperCase()} position`,
         zone: input.zone.trim() || "Default",
         latitude: input.latitude ?? null,
         longitude: input.longitude ?? null,
