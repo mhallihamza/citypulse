@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, ArrowUpRight, CircleSlash, Inbox } from "lucide-react";
 import { useApp } from "@/context/AppContext";
@@ -8,8 +9,8 @@ import { CityMap } from "@/components/map/CityMap";
 import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
 import { lightingStats, serviceConnected, trafficStats, wasteStats, waterStats } from "@/pages/app/_shared";
 import { timeAgo } from "@/lib/format";
-import { SERVICES } from "@/lib/services";
-import type { ServiceId } from "@/lib/types";
+import { SERVICE_CONFIG, SERVICES } from "@/lib/services";
+import type { ServiceId, TelemetrySample } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,6 +32,44 @@ export function Dashboard() {
   const recentEvents = events.slice(0, 5);
   const topTickets = tickets.filter((t) => t.status !== "resolved").slice(0, 3);
   const newInsights = insights.filter((i) => i.status === "new").length;
+
+  // Compact "city health" score per service — derived ONLY from real records.
+  const healthOf = (total: number, online: number) => {
+    const pct = total > 0 ? (online / total) * 100 : null;
+    const label = pct == null ? "No data" : pct >= 99 ? "Operational" : pct >= 90 ? "Operational" : pct >= 50 ? "Attended" : "Critical";
+    const tone = pct == null ? "text-ink-400" : pct >= 90 ? "text-live-600" : pct >= 50 ? "text-amber-600" : "text-red-600";
+    return { pct, label, tone };
+  };
+  const health = {
+    lighting: healthOf(stats.total, stats.online),
+    traffic: healthOf(tStats.total, tStats.online),
+    water: healthOf(wStats.total, wStats.online),
+    waste: healthOf(bStats.total, bStats.online),
+  } as Record<ServiceId, { pct: number | null; label: string; tone: string }>;
+
+  // Real sparkline series per service (latest telemetry of the fleet).
+  const sparkMetric: Record<ServiceId, keyof TelemetrySample> = {
+    lighting: "brightness",
+    traffic: "vehicleCount",
+    water: "pressure",
+    waste: "fillLevel",
+  };
+  const sparkSeries: Record<ServiceId, number[]> = useMemo(() => {
+    const out = {} as Record<ServiceId, number[]>;
+    for (const svc of SERVICES) {
+      const vals: number[] = [];
+      for (const d of devices) {
+        if (d.service !== svc.key) continue;
+        for (const s of telemetry[d.id] ?? []) {
+          const v = Number(s[sparkMetric[svc.key]]);
+          if (Number.isFinite(v)) vals.push(v);
+        }
+      }
+      out[svc.key] = vals.slice(-20);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devices, telemetry]);
 
   return (
     <div>
@@ -61,8 +100,8 @@ export function Dashboard() {
           const connected = serviceConnected(svc.key as ServiceId);
           return (
             <Link key={svc.key} to={`/app/${svc.key}`} className="group">
-              <Card className={cn("lift h-full p-5", !connected && "opacity-95")}>
-                <div className="flex items-start justify-between gap-2">
+              <Card className={cn("lift h-full p-4", !connected && "opacity-95")}>
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-ink-500">
                     <ServiceIconBadge service={svc.key} size="sm" />
                     <span className="text-[13px] font-semibold uppercase tracking-wide">{svc.name}</span>
@@ -74,6 +113,21 @@ export function Dashboard() {
                       <CircleSlash className="h-3 w-3" /> Not connected
                     </span>
                   )}
+                </div>
+
+                <div className="mt-3 flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-0.5">
+                      <span className="font-display text-[26px] font-bold leading-none tabular-nums text-ink-900">
+                        {health[svc.key].pct != null ? health[svc.key].pct.toFixed(1) : "—"}
+                      </span>
+                      <span className={cn("text-base font-bold", health[svc.key].pct != null ? "text-ink-500" : "text-ink-300")}>%</span>
+                    </div>
+                    <div className={cn("mt-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide", health[svc.key].tone)}>
+                      {health[svc.key].label} <ArrowUpRight className="h-3 w-3" />
+                    </div>
+                  </div>
+                  <Sparkline points={sparkSeries[svc.key]} color={SERVICE_CONFIG[svc.key].color} />
                 </div>
 
                 {connected ? (
@@ -141,7 +195,7 @@ export function Dashboard() {
             }
           />
           <div className="p-4">
-            <CityMap devices={devices} events={events} tickets={tickets} states={states} trafficStates={trafficStates} waterStates={waterStates} wasteStates={wasteStates} telemetry={telemetry} dark className="h-[380px]" />
+            <CityMap devices={devices} events={events} tickets={tickets} states={states} trafficStates={trafficStates} waterStates={waterStates} wasteStates={wasteStates} telemetry={telemetry} dark interactive hud className="h-[380px]" />
           </div>
         </Card>
 
@@ -241,5 +295,34 @@ function MiniStat({ label, value, tone }: { label: string; value: string; tone?:
       <div className="text-[10px] font-semibold uppercase tracking-widest text-ink-400">{label}</div>
       <div className={cn("font-display text-xl font-bold tabular text-ink-900", tone)}>{value}</div>
     </div>
+  );
+}
+
+/** Compact service trend sparkline built from real telemetry (empty → flat). */
+function Sparkline({ points, color }: { points: number[]; color: string }) {
+  const w = 64;
+  const h = 30;
+  if (!points.length) {
+    return (
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0 opacity-50">
+        <line x1={0} y1={h / 2} x2={w} y2={h / 2} stroke={color} strokeWidth={1.5} strokeDasharray="3 3" />
+      </svg>
+    );
+  }
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const step = w / (points.length - 1 || 1);
+  const coords = points
+    .map((p, i) => {
+      const x = i * step;
+      const y = h - 3 - ((p - min) / span) * (h - 6);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0">
+      <polyline points={coords} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

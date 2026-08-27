@@ -5,6 +5,7 @@ import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Tick
 import { ENTITY_STATUS_COLOR } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { SERVICE_CONFIG } from "@/lib/services";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
@@ -23,6 +24,13 @@ export interface CityMapLayers {
  * longitude). Devices without coordinates are never invented or approximated:
  * if nothing has coordinates the map renders an explicit empty state.
  */
+
+const CITYPULSE_HUD_LEGEND = [
+  { key: "normal", color: "#10b981" },
+  { key: "warning", color: "#f59e0b" },
+  { key: "critical", color: "#ef4444" },
+  { key: "offline", color: "#9ca3af" },
+];
 
 const RIVER = "M-20 470 C 180 400, 340 470, 640 420 S 820 260, 1020 330 L 1020 700 L -20,700 Z";
 
@@ -173,6 +181,7 @@ interface CityMapProps {
   layers?: CityMapLayers;
   dark?: boolean;
   interactive?: boolean;
+  hud?: boolean;
   highlightDeviceId?: string | null;
   onSelectDevice?: (deviceId: string) => void;
   noActions?: boolean;
@@ -192,6 +201,7 @@ export function CityMap({
   layers = { devices: true, infrastructure: true, events: true, tickets: true },
   dark = false,
   interactive = false,
+  hud = false,
   highlightDeviceId,
   onSelectDevice,
   noActions = false,
@@ -199,6 +209,7 @@ export function CityMap({
 }: CityMapProps) {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<string | null>(highlightDeviceId ?? null);
+  const [timeRange, setTimeRange] = useState<"Live" | "24h" | "7d">("Live");
 
   const visibleDevices = useMemo(() => {
     return devices.filter((d) => {
@@ -211,6 +222,7 @@ export function CityMap({
 
   const projected = useMemo(() => projectDevices(visibleDevices), [visibleDevices]);
   const selectedDevice = visibleDevices.find((d) => d.id === selected) ?? null;
+  const incident = selectedDevice ? events.find((e) => e.deviceId === selectedDevice.id && e.status !== "resolved") : undefined;
 
   const select = (id: string) => {
     setSelected(id);
@@ -229,7 +241,9 @@ export function CityMap({
             if (!pt) return null;
             const c = ENTITY_STATUS_COLOR[dev.status];
             const isSel = selected === dev.id;
-            const r = dev.status === "critical" ? 9 : dev.status === "warning" ? 8 : 7;
+            const r = dev.status === "critical" ? 10 : dev.status === "warning" ? 9 : 8;
+            const Icon = SERVICE_CONFIG[dev.service].icon;
+            const glyph = dark ? "#0b1322" : "#fff";
             return (
               <g key={dev.id} transform={`translate(${pt.x}, ${pt.y})`} className="cursor-pointer" onClick={() => (interactive ? select(dev.id) : undefined)}>
                 {(dev.status === "critical" || dev.status === "warning") && (
@@ -239,6 +253,10 @@ export function CityMap({
                   </circle>
                 )}
                 <circle r={r} fill={c} stroke={dark ? "#0b1322" : "#fff"} strokeWidth={2.5} />
+                <g transform={`translate(${-7}, ${-7})`}>
+                  <Icon size={14} strokeWidth={2.2} style={{ color: glyph }} />
+                </g>
+                <circle cx={r - 2} cy={-(r - 2)} r={3.5} fill={c} stroke={dark ? "#0b1322" : "#fff"} strokeWidth={1.5} />
                 {isSel && <circle r={r + 6} fill="none" stroke="#246BFF" strokeWidth={2} />}
               </g>
             );
@@ -313,6 +331,14 @@ export function CityMap({
               </div>
             ))}
           </div>
+          {incident && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-2.5">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-red-300">Open incident</div>
+              <div className="mt-0.5 text-[13px] font-semibold text-white">{incident.title}</div>
+              {incident.detail && <div className="mt-0.5 text-[11px] leading-snug text-ink-300">{incident.detail}</div>}
+              <div className="mt-1 text-[10px] text-ink-400">{incident.eventType} · {timeAgo(incident.createdAt)}</div>
+            </div>
+          )}
           <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2.5">
             <span className="text-[10px] text-ink-400">
               Last seen {selectedDevice.lastHeartbeat ? timeAgo(selectedDevice.lastHeartbeat) : "never"}
@@ -321,16 +347,59 @@ export function CityMap({
               <Button
                 size="xs"
                 variant="primary"
-                onClick={() => (onSelectDevice ? onSelectDevice(selectedDevice.id) : navigate(`/app/${selectedDevice.service}/devices/${selectedDevice.id}`))}
+                onClick={() =>
+                  onSelectDevice
+                    ? onSelectDevice(selectedDevice.id)
+                    : incident
+                      ? navigate(`/app/${selectedDevice.service}/events`)
+                      : navigate(`/app/${selectedDevice.service}/devices/${selectedDevice.id}`)
+                }
               >
-                View device <ArrowUpRight className="h-3 w-3" />
+                {incident ? "View incident" : "View device"} <ArrowUpRight className="h-3 w-3" />
               </Button>
             )}
           </div>
         </div>
       )}
 
+      {/* Map control bar (HUD) — shown on the overview dashboard */}
+      {hud && (
+        <div
+          className={cn(
+            "pointer-events-auto absolute left-1/2 top-3 z-20 flex max-w-[94%] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] font-semibold",
+            dark ? "bg-ink-950/75 text-white/80 backdrop-blur" : "bg-white/90 text-ink-600 shadow-sm backdrop-blur"
+          )}
+        >
+          <div className={cn("flex items-center rounded-md p-0.5", dark ? "bg-white/10" : "bg-ink-100")}>
+            {(["Live", "24h", "7d"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTimeRange(t)}
+                className={cn(
+                  "rounded px-2.5 py-1 transition-colors",
+                  timeRange === t ? (dark ? "bg-white/20 text-white" : "bg-white text-ink-900 shadow-sm") : "hover:opacity-80"
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <span className={cn("h-4 w-px", dark ? "bg-white/20" : "bg-ink-200")} />
+          <button className="hover:opacity-80">Filters</button>
+          <button className="hover:opacity-80">Layers</button>
+          <span className={cn("h-4 w-px", dark ? "bg-white/20" : "bg-ink-200")} />
+          <div className="flex items-center gap-2">
+            {CITYPULSE_HUD_LEGEND.map((l) => (
+              <span key={l.key} className="inline-flex items-center gap-1 uppercase">
+                <span className="h-2 w-2 rounded-full" style={{ background: l.color }} /> {l.key}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Legend */}
+      {!hud && (
       <div
         className={cn(
           "pointer-events-none absolute right-3 top-3 hidden items-center gap-3 rounded-lg px-3 py-2 sm:flex",
@@ -344,6 +413,7 @@ export function CityMap({
           </span>
         ))}
       </div>
+      )}
     </div>
   );
 }
