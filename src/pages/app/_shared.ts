@@ -138,3 +138,111 @@ export function wasteStats(devices: Device[], wasteStates: Record<string, WasteS
   const openTickets = tickets.filter((t) => t.service === "waste" && t.status !== "resolved").length;
   return { fleet, total: fleet.length, online, offline: fleet.length - online, warnings, openTickets };
 }
+
+// ---------------------------------------------------------------------------
+// City health — per-service operational score built from REAL signals:
+// connectivity + live state (lamp failure / congestion / leak / bin warning)
+// + unresolved incidents. Issues always move the percentage and the label.
+// ---------------------------------------------------------------------------
+
+export interface ServiceHealth {
+  pct: number | null; // % of the fleet fully healthy (null when no devices)
+  label: string; // Operational | Minor issues | Degraded | Offline | Incident | Critical | No data
+  tone: string; // tailwind text color for the label
+  healthy: number;
+  total: number;
+  issues: number;
+  criticals: number;
+}
+
+export function serviceHealth(
+  service: ServiceId,
+  devices: Device[],
+  states: Record<string, LightingState>,
+  trafficStates: Record<string, TrafficState>,
+  waterStates: Record<string, WaterState>,
+  wasteStates: Record<string, WasteState>,
+  events: CityEvent[]
+): ServiceHealth {
+  const fleet = devices.filter((d) => d.service === service);
+  const total = fleet.length;
+  const empty: ServiceHealth = { pct: null, label: "No data", tone: "text-ink-400", healthy: 0, total: 0, issues: 0, criticals: 0 };
+  if (total === 0) return empty;
+
+  // Unresolved incidents per device (real event rows only).
+  const openEvents = new Map<string, { critical: boolean; warning: boolean }>();
+  for (const e of events) {
+    if (e.service !== service || !e.deviceId || e.status === "resolved") continue;
+    const cur = openEvents.get(e.deviceId) ?? { critical: false, warning: false };
+    if (e.severity === "critical") cur.critical = true;
+    else if (e.severity === "warning") cur.warning = true;
+    openEvents.set(e.deviceId, cur);
+  }
+
+  let issues = 0;
+  let criticals = 0;
+  for (const d of fleet) {
+    let problem: "critical" | "warning" | null = null;
+    const flag = (p: "critical" | "warning") => {
+      if (!problem || (p === "critical" && problem === "warning")) problem = p;
+    };
+
+    // Connectivity — a registered device that is not reporting is a real issue.
+    const online =
+      service === "lighting" ? states[d.id]?.online : service === "traffic" ? trafficStates[d.id]?.online : service === "water" ? waterStates[d.id]?.online : wasteStates[d.id]?.online;
+    if (online === false) flag("warning");
+
+    // Live state per service vocabulary.
+    if (service === "lighting") {
+      const s = states[d.id];
+      if (s?.lampFailure) flag("critical");
+    } else if (service === "traffic") {
+      const st = String(trafficStates[d.id]?.state ?? "").toUpperCase();
+      if (st === "INCIDENT") flag("critical");
+      else if (st === "CONGESTED") flag("warning");
+    } else if (service === "water") {
+      const s = waterStates[d.id];
+      const st = String(s?.state ?? "").toUpperCase();
+      if (s?.leakage || st === "LEAK" || st === "BLOCKAGE" || st.includes("LEAK")) flag("critical");
+      else if (st !== "" && st !== "NORMAL" && st !== "OK") flag("warning");
+    } else if (service === "waste") {
+      const st = String(wasteStates[d.id]?.status ?? "").toUpperCase();
+      if (st !== "" && st !== "NORMAL") flag("warning");
+    }
+
+    const ev = openEvents.get(d.id);
+    if (ev?.critical) flag("critical");
+    else if (ev?.warning) flag("warning");
+
+    if (problem) {
+      issues += 1;
+      if (problem === "critical") criticals += 1;
+    }
+  }
+
+  const healthy = total - issues;
+  const pct = (healthy / total) * 100;
+
+  let label = "Operational";
+  let tone = "text-live-600";
+  if (issues > 0) {
+    if (criticals > 0) {
+      label = "Incident";
+      tone = "text-red-600";
+    } else if (issues === total) {
+      label = "Offline";
+      tone = "text-amber-600";
+    } else if (pct >= 80) {
+      label = "Minor issues";
+      tone = "text-amber-600";
+    } else if (pct >= 50) {
+      label = "Degraded";
+      tone = "text-amber-600";
+    } else {
+      label = "Critical";
+      tone = "text-red-600";
+    }
+  }
+
+  return { pct, label, tone, healthy, total, issues, criticals };
+}

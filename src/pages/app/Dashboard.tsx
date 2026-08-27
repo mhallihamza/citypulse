@@ -7,7 +7,7 @@ import { Badge, SeverityBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CityMap } from "@/components/map/CityMap";
 import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
-import { lightingStats, serviceConnected, trafficStats, wasteStats, waterStats } from "@/pages/app/_shared";
+import { lightingStats, serviceConnected, serviceHealth, trafficStats, wasteStats, waterStats } from "@/pages/app/_shared";
 import { timeAgo } from "@/lib/format";
 import { SERVICE_CONFIG, SERVICES } from "@/lib/services";
 import type { ServiceId, TelemetrySample } from "@/lib/types";
@@ -33,19 +33,15 @@ export function Dashboard() {
   const topTickets = tickets.filter((t) => t.status !== "resolved").slice(0, 3);
   const newInsights = insights.filter((i) => i.status === "new").length;
 
-  // Compact "city health" score per service — derived ONLY from real records.
-  const healthOf = (total: number, online: number) => {
-    const pct = total > 0 ? (online / total) * 100 : null;
-    const label = pct == null ? "No data" : pct >= 99 ? "Operational" : pct >= 90 ? "Operational" : pct >= 50 ? "Attended" : "Critical";
-    const tone = pct == null ? "text-ink-400" : pct >= 90 ? "text-live-600" : pct >= 50 ? "text-amber-600" : "text-red-600";
-    return { pct, label, tone };
-  };
+  // "City health" per service — real fleet health: connectivity + live state
+  // (lamp failure / congestion / leak / bin warning) + unresolved incidents.
+  // Issues always lower the percentage and change the label.
   const health = {
-    lighting: healthOf(stats.total, stats.online),
-    traffic: healthOf(tStats.total, tStats.online),
-    water: healthOf(wStats.total, wStats.online),
-    waste: healthOf(bStats.total, bStats.online),
-  } as Record<ServiceId, { pct: number | null; label: string; tone: string }>;
+    lighting: serviceHealth("lighting", devices, states, trafficStates, waterStates, wasteStates, events),
+    traffic: serviceHealth("traffic", devices, states, trafficStates, waterStates, wasteStates, events),
+    water: serviceHealth("water", devices, states, trafficStates, waterStates, wasteStates, events),
+    waste: serviceHealth("waste", devices, states, trafficStates, waterStates, wasteStates, events),
+  };
 
   // Real sparkline series per service (latest telemetry of the fleet).
   const sparkMetric: Record<ServiceId, keyof TelemetrySample> = {
