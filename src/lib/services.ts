@@ -4,10 +4,8 @@ import type { ServiceId } from "@/lib/types";
 /**
  * CITYPULSE service registry.
  *
- * The platform supports four city services. LIGHTING is the only service
- * currently connected to real IoT data. Water, Waste and Traffic are future
- * services: they exist in the architecture, navigation and product, but have
- * no live data yet and render professional "not connected yet" states.
+ * All four city services are connected to real IoT data through
+ * Fusion AI -> Supabase. Every dashboard reads live database records only.
  *
  * Adding a service later = filling in a shape like this, no redesign needed.
  */
@@ -48,7 +46,7 @@ export const SERVICES: ServiceConfig[] = [
     color: "#10B981",
     bg: "#ECFDF5",
     description: "Smart waste management.",
-    connected: false,
+    connected: true,
   },
   {
     key: "traffic",

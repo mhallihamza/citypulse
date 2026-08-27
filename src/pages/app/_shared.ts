@@ -1,4 +1,4 @@
-import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket, TrafficState, WaterState } from "@/lib/types";
+import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket, TrafficState, WasteState, WaterState } from "@/lib/types";
 import { SERVICES } from "@/lib/services";
 
 /**
@@ -116,4 +116,25 @@ export function waterStats(devices: Device[], waterStates: Record<string, WaterS
   }).length;
   const openTickets = tickets.filter((t) => t.service === "water" && t.status !== "resolved").length;
   return { fleet, total: fleet.length, online, offline: fleet.length - online, anomalies, openTickets };
+}
+
+// ---------------------------------------------------------------------------
+// Waste — Smart Bin statistics from actual waste_states records.
+// ---------------------------------------------------------------------------
+
+export interface WasteStats {
+  fleet: Device[];
+  total: number;
+  online: number;
+  offline: number;
+  warnings: number; // bins currently reporting status WARNING
+  openTickets: number;
+}
+
+export function wasteStats(devices: Device[], wasteStates: Record<string, WasteState>, tickets: Ticket[]): WasteStats {
+  const fleet = devices.filter((d) => d.service === "waste");
+  const online = fleet.filter((d) => wasteStates[d.id]?.online).length;
+  const warnings = fleet.filter((d) => String(wasteStates[d.id]?.status ?? "").trim().toUpperCase() === "WARNING").length;
+  const openTickets = tickets.filter((t) => t.service === "waste" && t.status !== "resolved").length;
+  return { fleet, total: fleet.length, online, offline: fleet.length - online, warnings, openTickets };
 }

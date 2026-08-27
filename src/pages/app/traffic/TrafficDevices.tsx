@@ -92,7 +92,7 @@ export function TrafficDevicesPage() {
         </div>
       </Card>
 
-      {open && <CreateDeviceModal open defaultService="traffic" allowedServices={["lighting", "water", "traffic"]} onClose={() => setOpen(false)} />}
+      {open && <CreateDeviceModal open defaultService="traffic" allowedServices={["lighting", "water", "traffic", "waste"]} onClose={() => setOpen(false)} />}
     </div>
   );
 }

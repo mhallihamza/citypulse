@@ -6,7 +6,7 @@ import { Badge, SeverityBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CityMap } from "@/components/map/CityMap";
 import { ServiceIconBadge } from "@/components/ui/ServiceIcon";
-import { lightingStats, serviceConnected, trafficStats, waterStats } from "@/pages/app/_shared";
+import { lightingStats, serviceConnected, trafficStats, wasteStats, waterStats } from "@/pages/app/_shared";
 import { timeAgo } from "@/lib/format";
 import { SERVICES } from "@/lib/services";
 import type { ServiceId } from "@/lib/types";
@@ -15,15 +15,16 @@ import { cn } from "@/lib/utils";
 /**
  * CITYPULSE — global dashboard.
  * The CITY OVERVIEW: status of the whole platform across all four services.
- * Lighting, Water and Traffic read live data from Supabase (devices, states,
- * telemetry, events, tickets); Waste shows an honest "not connected yet" card
- * until its module ships. Every number is computed from real records.
+ * Lighting, Water, Traffic AND Waste read live data from Supabase (devices,
+ * states, telemetry, events, tickets). Every number is computed from real
+ * records.
  */
 export function Dashboard() {
-  const { devices, states, trafficStates, waterStates, telemetry, events, tickets, insights, organization, loadingData, now } = useApp();
+  const { devices, states, trafficStates, waterStates, wasteStates, telemetry, events, tickets, insights, organization, loadingData, now } = useApp();
   const stats = lightingStats(devices, states, events, tickets);
   const tStats = trafficStats(devices, trafficStates, events, tickets);
   const wStats = waterStats(devices, waterStates, tickets);
+  const bStats = wasteStats(devices, wasteStates, tickets);
 
   const criticalOpen = events.filter((e) => e.severity === "critical" && e.status !== "resolved").length;
   const openTickets = tickets.filter((t) => t.status !== "resolved").length;
@@ -102,6 +103,14 @@ export function Dashboard() {
                           <MiniStat label="Open tickets" value={String(wStats.openTickets)} />
                         </>
                       )}
+                      {svc.key === "waste" && (
+                        <>
+                          <MiniStat label="Bins" value={String(bStats.total)} />
+                          <MiniStat label="Online" value={String(bStats.online)} tone={bStats.online > 0 ? "text-live-600" : undefined} />
+                          <MiniStat label="Offline" value={String(bStats.offline)} tone={bStats.offline > 0 ? "text-amber-600" : undefined} />
+                          <MiniStat label="Warnings" value={String(bStats.warnings)} tone={bStats.warnings > 0 ? "text-red-600" : undefined} />
+                        </>
+                      )}
                     </div>
                     <div className="mt-3 text-[11px] text-ink-400">{svc.name} service · live operations</div>
                   </>
@@ -132,7 +141,7 @@ export function Dashboard() {
             }
           />
           <div className="p-4">
-            <CityMap devices={devices} events={events} tickets={tickets} states={states} trafficStates={trafficStates} waterStates={waterStates} telemetry={telemetry} dark className="h-[380px]" />
+            <CityMap devices={devices} events={events} tickets={tickets} states={states} trafficStates={trafficStates} waterStates={waterStates} wasteStates={wasteStates} telemetry={telemetry} dark className="h-[380px]" />
           </div>
         </Card>
 

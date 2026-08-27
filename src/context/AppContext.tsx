@@ -31,6 +31,7 @@ import type {
   TicketStatus,
   TrafficState,
   WaterState,
+  WasteState,
 } from "@/lib/types";
 import { errMsg, isSchemaError } from "@/lib/api";
 
@@ -79,6 +80,7 @@ interface AppContextValue {
   states: Record<string, LightingState>;
   trafficStates: Record<string, TrafficState>;
   waterStates: Record<string, WaterState>;
+  wasteStates: Record<string, WasteState>;
   telemetry: Record<string, TelemetrySample[]>;
   events: CityEvent[];
   tickets: Ticket[];
@@ -131,7 +133,7 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const REALTIME_TABLES = ["devices", "lighting_states", "traffic_states", "water_states", "lighting_telemetry", "traffic_telemetry", "water_telemetry", "waste_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
+const REALTIME_TABLES = ["devices", "lighting_states", "traffic_states", "water_states", "waste_states", "lighting_telemetry", "traffic_telemetry", "water_telemetry", "waste_telemetry", "events", "device_commands", "tickets", "notifications", "operators", "ticket_assignments"];
 
 /** Append-only per-service telemetry history tables — realtime INSERTs only. */
 const TELEMETRY_REALTIME = new Set<string>(["lighting_telemetry", "traffic_telemetry", "water_telemetry", "waste_telemetry"]);
@@ -153,6 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [states, setStates] = useState<Record<string, LightingState>>({});
   const [trafficStates, setTrafficStates] = useState<Record<string, TrafficState>>({});
   const [waterStates, setWaterStates] = useState<Record<string, WaterState>>({});
+  const [wasteStates, setWasteStates] = useState<Record<string, WasteState>>({});
   const [telemetry, setTelemetry] = useState<Record<string, TelemetrySample[]>>({});
   const [events, setEvents] = useState<CityEvent[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -171,6 +174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const statesRef = useRef<Record<string, LightingState>>({});
   const trafficStatesRef = useRef<Record<string, TrafficState>>({});
   const waterStatesRef = useRef<Record<string, WaterState>>({});
+  const wasteStatesRef = useRef<Record<string, WasteState>>({});
   const eventsRef = useRef<CityEvent[]>([]);
   const ticketsRef = useRef<Ticket[]>([]);
   const notificationsRef = useRef<AppNotification[]>([]);
@@ -209,6 +213,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     waterStatesRef.current = waterStates;
   }, [waterStates]);
   useEffect(() => {
+    wasteStatesRef.current = wasteStates;
+  }, [wasteStates]);
+  useEffect(() => {
     eventsRef.current = events;
   }, [events]);
   useEffect(() => {
@@ -243,6 +250,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStates({});
     setTrafficStates({});
     setWaterStates({});
+    setWasteStates({});
     setTelemetry({});
     setEvents([]);
     setTickets([]);
@@ -294,11 +302,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!supabase || !org) return;
     setLoadingData(true);
     try {
-      const [devs, st, ts, ws, evs, tks, nts, ins, cmds, ops, asgs, locs, orgUsers, inv] = await Promise.all([
+      const [devs, st, ts, ws, bs, evs, tks, nts, ins, cmds, ops, asgs, locs, orgUsers, inv] = await Promise.all([
         api.fetchDevices(org),
         api.fetchLightingStates(org),
         optional(api.fetchTrafficStates(org), [], "traffic_states"),
         optional(api.fetchWaterStates(org), [], "water_states"),
+        optional(api.fetchWasteStates(org), [], "waste_states"),
         api.fetchEvents(org),
         api.fetchTickets(org),
         api.fetchNotifications(org),
@@ -331,6 +340,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStates(Object.fromEntries(st.map((s) => [s.deviceId, s])));
       setTrafficStates(Object.fromEntries(ts.map((s) => [s.deviceId, s])));
       setWaterStates(Object.fromEntries(ws.map((s) => [s.deviceId, s])));
+      setWasteStates(Object.fromEntries(bs.map((s) => [s.deviceId, s])));
       setTelemetry(tel);
       setEvents(evs);
       setTickets(ticketsJoined);
@@ -439,6 +449,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         } else {
           setWaterStates((prev) => ({ ...prev, [s.deviceId]: s }));
+        }
+        return;
+      }
+
+      if (table === "waste_states") {
+        const s = api.mapWasteState(row as never);
+        if (event === "DELETE") {
+          setWasteStates((prev) => {
+            const { [s.deviceId]: _removed, ...rest } = prev;
+            return rest;
+          });
+        } else {
+          setWasteStates((prev) => ({ ...prev, [s.deviceId]: s }));
         }
         return;
       }
@@ -859,6 +882,7 @@ const setTicketStatus = useCallback(
     states,
     trafficStates,
     waterStates,
+    wasteStates,
     telemetry,
     events,
     tickets,

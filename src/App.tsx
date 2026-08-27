@@ -38,6 +38,8 @@ import { TrafficPage } from "@/pages/app/traffic/TrafficPage";
 import { TrafficDevicesPage, TrafficDeviceDetail } from "@/pages/app/traffic/TrafficDevices";
 import { WaterPage } from "@/pages/app/water/WaterPage";
 import { WaterDevicesPage, WaterDeviceDetail } from "@/pages/app/water/WaterDevices";
+import { WastePage } from "@/pages/app/waste/WastePage";
+import { WasteDevicesPage, WasteDeviceDetail } from "@/pages/app/waste/WasteDevices";
 import { NotFound } from "@/pages/NotFound";
 
 function ScrollToTop() {
@@ -204,8 +206,12 @@ export default function App() {
           <Route path="traffic/events" element={<EventsPage service="traffic" />} />
           <Route path="traffic/tickets" element={<TicketsPage service="traffic" />} />
 
-          {/* Waste — future module */}
-          <Route path="waste" element={<ServicePage service="waste" />} />
+          {/* Waste — real service */}
+          <Route path="waste" element={<WastePage />} />
+          <Route path="waste/devices" element={<WasteDevicesPage />} />
+          <Route path="waste/devices/:deviceId" element={<WasteDeviceDetail />} />
+          <Route path="waste/events" element={<EventsPage service="waste" />} />
+          <Route path="waste/tickets" element={<TicketsPage service="waste" />} />
 
           {/* Operations */}
           <Route path="events" element={<EventsPage />} />

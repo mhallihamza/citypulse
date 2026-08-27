@@ -25,6 +25,7 @@ import type {
   TicketStatus,
   TrafficState,
   WaterState,
+  WasteState,
 } from "@/lib/types";
 
 /**
@@ -143,6 +144,11 @@ interface WasteTelRow {
   device_id: string;
   ts: string;
   fill_level: string | number | null;
+  temperature: string | number | null;
+  humidity: string | number | null;
+  hand_detected: boolean | null;
+  status: string | null;
+  state: string | null;
 }
 interface TrafficStateRow {
   device_id: string;
@@ -165,6 +171,16 @@ interface WaterStateRow {
   reference_pressure: string | number | null;
   pressure_drop: string | number | null;
   pressure_drop_percent: string | number | null;
+  online: boolean | null;
+  last_seen: string | null;
+}
+interface WasteStateRow {
+  device_id: string;
+  level: string | number | null;
+  temperature: string | number | null;
+  humidity: string | number | null;
+  status: string;
+  hand_detected: boolean | null;
   online: boolean | null;
   last_seen: string | null;
 }
@@ -379,7 +395,26 @@ export function mapTelemetryRow(table: TelemetryTable, raw: Record<string, unkno
     };
   }
   const r = raw as unknown as WasteTelRow;
-  return { ts, fillLevel: toNum(r.fill_level) ?? undefined };
+  return {
+    ts,
+    fillLevel: toNum(r.fill_level) ?? undefined,
+    temperature: toNum(r.temperature) ?? undefined,
+    humidity: toNum(r.humidity) ?? undefined,
+    handDetected: r.hand_detected === null || r.hand_detected === undefined ? undefined : Boolean(r.hand_detected),
+  };
+}
+
+export function mapWasteState(row: WasteStateRow): WasteState {
+  return {
+    deviceId: row.device_id,
+    level: toNum(row.level) ?? undefined,
+    temperature: toNum(row.temperature) ?? undefined,
+    humidity: toNum(row.humidity) ?? undefined,
+    status: row.status,
+    handDetected: Boolean(row.hand_detected),
+    online: Boolean(row.online),
+    lastSeen: toMs(row.last_seen) ?? Date.now(),
+  };
 }
 
 export function mapTrafficState(row: TrafficStateRow): TrafficState {
@@ -626,6 +661,13 @@ export async function fetchWaterStates(orgId: string | null): Promise<WaterState
   const { data, error } = await supabase.from("water_states").select("*").eq("org_id", orgId);
   if (error) throw error;
   return (data ?? []).map((r: WaterStateRow) => mapWaterState(r));
+}
+
+export async function fetchWasteStates(orgId: string | null): Promise<WasteState[]> {
+  if (!supabase || !orgId) return [];
+  const { data, error } = await supabase.from("waste_states").select("*").eq("org_id", orgId);
+  if (error) throw error;
+  return (data ?? []).map((r: WasteStateRow) => mapWasteState(r));
 }
 
 export async function fetchTelemetry(

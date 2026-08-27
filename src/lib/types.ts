@@ -157,6 +157,21 @@ export interface TelemetrySample {
   leakage?: boolean;
   // waste_telemetry
   fillLevel?: number;
+  temperature?: number;
+  humidity?: number;
+  handDetected?: boolean;
+}
+
+/** Live Smart Bin state (waste_states row) — actual ESP32 payload vocabulary. */
+export interface WasteState {
+  deviceId: string;
+  level?: number; // bin fill level %
+  temperature?: number; // °C
+  humidity?: number; // %
+  status: string; // NORMAL | WARNING | …
+  handDetected: boolean;
+  online: boolean;
+  lastSeen: number;
 }
 
 // ---------------------------------------------------------------------------

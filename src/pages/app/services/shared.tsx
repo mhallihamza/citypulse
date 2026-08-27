@@ -34,7 +34,7 @@ export function ServiceStatePill({ state }: { state: string }) {
   const tone =
     ["CONGESTED", "LEAK", "INCIDENT"].includes(s)
       ? "bg-red-50 text-red-700 border-red-200"
-      : ["MODERATE", "LOW_PRESSURE"].includes(s)
+      : ["MODERATE", "LOW_PRESSURE", "WARNING"].includes(s)
         ? "bg-amber-50 text-amber-700 border-amber-200"
         : ["CLEAR", "NORMAL", "OK"].includes(s)
           ? "bg-live-50 text-live-700 border-live-200"
@@ -101,15 +101,16 @@ export function TelemetryChart({
   );
 }
 
-const SERVICE_TYPE_OPTIONS: Record<"lighting" | "water" | "traffic", string[]> = {
+const SERVICE_TYPE_OPTIONS: Record<ServiceId, string[]> = {
   lighting: ["ESP32_LIGHTING_CONTROLLER", "STREET_LIGHT_CONTROLLER", "FEEDER_PANEL", "PHOTOCELL_SENSOR"],
   traffic: ["TRAFFIC_SEGMENT_CONTROLLER", "IR_SENSOR_PAIR", "TRAFFIC_CAMERA_NODE"],
   water: ["WATER_FLOW_CONTROLLER", "PRESSURE_SENSOR", "LEAK_DETECTOR"],
+  waste: ["WASTE_SMART_BIN", "FILL_LEVEL_SENSOR"],
 };
 
 /**
- * Multi-service device registration. The user picks Lighting / Water / Traffic;
- * the form adapts its type options to the chosen service. Creating a device
+ * Multi-service device registration. The user picks Lighting / Water / Traffic /
+ * Waste; the form adapts its type options to the chosen service. Creating a
  * writes one row into public.devices (org_id from the session) — the browser
  * NEVER opens an MQTT connection; Fusion AI / IoT infra connects the hardware.
  */
@@ -120,12 +121,12 @@ export function CreateDeviceModal({
   onClose,
 }: {
   open: boolean;
-  defaultService: Exclude<ServiceId, "waste">;
-  allowedServices: Exclude<ServiceId, "waste">[];
+  defaultService: ServiceId;
+  allowedServices: ServiceId[];
   onClose: () => void;
 }) {
   const { createDevice } = useApp();
-  const [service, setService] = useState<Exclude<ServiceId, "waste">>(defaultService);
+  const [service, setService] = useState<ServiceId>(defaultService);
   const [form, setForm] = useState({ deviceKey: "", displayName: "", type: "", zone: "", locationLabel: "", latitude: "", longitude: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -188,7 +189,7 @@ export function CreateDeviceModal({
           </Select>
         </Field>
         <Field label="Device ID" hint="Unique per organization, e.g. T-001 / W-101" className="sm:col-span-1">
-          <Input value={form.deviceKey} onChange={set("deviceKey")} placeholder={service === "traffic" ? "T-001" : "W-101"} />
+          <Input value={form.deviceKey} onChange={set("deviceKey")} placeholder={service === "traffic" ? "T-001" : service === "waste" ? "SmartBin01" : "W-101"} />
         </Field>
         <Field label="Name" className="sm:col-span-1">
           <Input value={form.displayName} onChange={set("displayName")} placeholder="Segment Av. Mohammed V" />

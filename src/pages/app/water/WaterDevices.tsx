@@ -95,7 +95,7 @@ export function WaterDevicesPage() {
         </div>
       </Card>
 
-      {open && <CreateDeviceModal open defaultService="water" allowedServices={["lighting", "water", "traffic"]} onClose={() => setOpen(false)} />}
+      {open && <CreateDeviceModal open defaultService="water" allowedServices={["lighting", "water", "traffic", "waste"]} onClose={() => setOpen(false)} />}
     </div>
   );
 }

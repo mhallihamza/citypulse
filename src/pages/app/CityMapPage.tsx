@@ -27,7 +27,7 @@ const LAYER_KEYS: { id: keyof CityMapLayers; label: string }[] = [
  * exist in the database.
  */
 export function CityMapPage() {
-  const { devices, states, trafficStates, waterStates, telemetry, events, tickets } = useApp();
+  const { devices, states, trafficStates, waterStates, wasteStates, telemetry, events, tickets } = useApp();
   const [filter, setFilter] = useState<MapServiceFilter>("all");
   const [layers, setLayers] = useState<CityMapLayers>({ devices: true, infrastructure: true, events: true, tickets: true });
 
@@ -96,6 +96,7 @@ export function CityMapPage() {
           states={states}
           trafficStates={trafficStates}
           waterStates={waterStates}
+          wasteStates={wasteStates}
           telemetry={telemetry}
           serviceFilter={filter}
           layers={layers}

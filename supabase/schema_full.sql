@@ -1038,3 +1038,127 @@ where not exists (select 1 from waste_telemetry s where s.device_id = t.device_i
 -- Legacy inserts into device_telemetry still work via the bridge trigger above
 -- (night/mode/lamp_failure have no legacy column and are only captured by the
 -- direct per-service path).
+-- ============================================================================
+-- WASTE SERVICE — Smart Bin charge (see waste_service migration for the
+-- split-path version). Idempotent + non-destructive, keeps the canonical
+-- installer self-consistent with supabase/service_telemetry_schema.sql.
+-- ============================================================================
+
+-- Live Smart Bin state (one row per waste device)
+create table if not exists waste_states (
+  org_id uuid not null references organizations(id) on delete cascade,
+  device_id uuid primary key references devices(id) on delete cascade,
+  level numeric default 0,              -- fill level %
+  temperature numeric,
+  humidity numeric,
+  status text not null default 'NORMAL',
+  hand_detected boolean not null default false,
+  online boolean not null default false,
+  last_seen timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_waste_states_org on waste_states (org_id);
+
+-- Waste historical payload fields on the per-service table + shared legacy table
+alter table waste_telemetry add column if not exists temperature numeric;
+alter table waste_telemetry add column if not exists humidity numeric;
+alter table waste_telemetry add column if not exists hand_detected boolean;
+alter table waste_telemetry add column if not exists status text;
+alter table waste_telemetry add column if not exists state text;
+alter table device_telemetry add column if not exists temperature numeric;
+alter table device_telemetry add column if not exists humidity numeric;
+alter table device_telemetry add column if not exists hand_detected boolean;
+
+-- RLS — org isolation for waste_states
+alter table waste_states enable row level security;
+drop policy if exists "waste_states: org scope" on waste_states;
+create policy "waste_states: org scope" on waste_states
+  for select using (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "waste_states: org insert" on waste_states;
+create policy "waste_states: org insert" on waste_states
+  for insert with check (org_id = public.org_org_id(auth.uid()));
+drop policy if exists "waste_states: org update" on waste_states;
+create policy "waste_states: org update" on waste_states
+  for update using (org_id = public.org_org_id(auth.uid()))
+  with check (org_id = public.org_org_id(auth.uid()));
+
+-- Realtime for waste_states (guarded — never duplicated)
+do $$ begin
+  if not exists (select 1 from pg_publication_tables
+                 where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'waste_states') then
+    alter publication supabase_realtime add table public.waste_states;
+  end if;
+end $$;
+-- Extend the shared devices->state trigger with a Waste branch
+create or replace function public.devices_to_lighting_state()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.service = 'lighting' then
+    insert into lighting_states (org_id, device_id)
+    values (new.org_id, new.id)
+    on conflict (device_id) do nothing;
+  elsif new.service = 'traffic' then
+    insert into traffic_states (org_id, device_id)
+    values (new.org_id, new.id)
+    on conflict (device_id) do nothing;
+  elsif new.service = 'water' then
+    insert into water_states (org_id, device_id)
+    values (new.org_id, new.id)
+    on conflict (device_id) do nothing;
+  elsif new.service = 'waste' then
+    insert into waste_states (org_id, device_id)
+    values (new.org_id, new.id)
+    on conflict (device_id) do nothing;
+  end if;
+  return new;
+end $$;
+
+-- Bridge trigger: waste branch carries the full Smart Bin payload
+create or replace function route_service_telemetry() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare svc text;
+begin
+  select d.service into svc from devices d where d.id = new.device_id;
+  if svc = 'lighting' then
+    insert into lighting_telemetry (org_id, device_id, ts, lux, brightness, presence)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()), new.lux, new.brightness, new.presence);
+  elsif svc = 'traffic' then
+    insert into traffic_telemetry (org_id, device_id, ts, vehicle_count, density, overdue_vehicles, tmax)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()),
+            new.vehicles, new.density,
+            (to_jsonb(new) ->> 'pending_vehicles')::int,
+            (to_jsonb(new) ->> 'travel_time')::numeric);
+  elsif svc = 'water' then
+    insert into water_telemetry (org_id, device_id, ts, flow, pressure,
+                                 sensor_status, state, reference_pressure,
+                                 pressure_drop, pressure_drop_percent)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()),
+            new.flow, new.pressure,
+            (to_jsonb(new) ->> 'sensor_status'),
+            (to_jsonb(new) ->> 'state'),
+            (to_jsonb(new) ->> 'reference_pressure')::numeric,
+            (to_jsonb(new) ->> 'pressure_drop')::numeric,
+            (to_jsonb(new) ->> 'pressure_drop_percent')::numeric);
+  elsif svc = 'waste' then
+    insert into waste_telemetry (org_id, device_id, ts, fill_level,
+                                 temperature, humidity, hand_detected, status)
+    values (new.org_id, new.device_id, coalesce(new.ts, now()),
+            new.fill_level, new.temperature, new.humidity, new.hand_detected,
+            (to_jsonb(new) ->> 'status'));
+  end if;
+  return new;
+end $$;
+
+-- Backfill existing waste telemetry into waste_telemetry (idempotent)
+insert into waste_telemetry (org_id, device_id, ts, fill_level,
+                             temperature, humidity, hand_detected, status)
+select t.org_id, t.device_id, t.ts, t.fill_level, t.temperature, t.humidity,
+       t.hand_detected, (to_jsonb(t) ->> 'status')
+from device_telemetry t
+where t.fill_level is not null
+  and not exists (select 1 from waste_telemetry w where w.device_id = t.device_id and w.ts = t.ts);
+
+-- ============================================================================
+-- (END waste sync)
+-- ============================================================================

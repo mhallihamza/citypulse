@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowUpRight, MapPinOff, X } from "lucide-react";
-import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket, TrafficState, WaterState } from "@/lib/types";
+import type { CityEvent, Device, LightingState, ServiceId, TelemetrySample, Ticket, TrafficState, WasteState, WaterState } from "@/lib/types";
 import { ENTITY_STATUS_COLOR } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -109,11 +109,13 @@ function stateMeta(
   states: Record<string, LightingState> | undefined,
   trafficStates: Record<string, TrafficState> | undefined,
   waterStates: Record<string, WaterState> | undefined,
+  wasteStates: Record<string, WasteState> | undefined,
   telemetry: Record<string, TelemetrySample[]> | undefined
 ): { label: string; value: string }[] {
   const s = states?.[device.id];
   const tS = trafficStates?.[device.id];
   const wS = waterStates?.[device.id];
+  const bS = wasteStates?.[device.id];
   const last = telemetry?.[device.id]?.slice(-1)[0];
   if (device.service === "lighting") {
     return [
@@ -145,6 +147,16 @@ function stateMeta(
       { label: "Drop %", value: wS?.pressureDropPercent != null ? `${Number(wS.pressureDropPercent).toFixed(2)}%` : last?.pressureDropPercent != null ? `${Number(last.pressureDropPercent).toFixed(2)}%` : "—" },
     ];
   }
+  if (device.service === "waste") {
+    return [
+      { label: "Online", value: bS ? (bS.online ? "Yes" : "No") : device.online ? "Yes" : "Unknown" },
+      { label: "Fill level", value: bS?.level != null ? `${Math.round(bS.level)}%` : last?.fillLevel != null ? `${Math.round(last.fillLevel)}%` : "-" },
+      { label: "Temperature", value: bS?.temperature != null ? `${Number(bS.temperature).toFixed(1)} C` : "-" },
+      { label: "Humidity", value: bS?.humidity != null ? `${Math.round(bS.humidity)}%` : "-" },
+      { label: "Status", value: bS?.status ?? device.status.toUpperCase() },
+      { label: "Hand detected", value: bS ? (bS.handDetected ? "Yes" : "No") : "-" },
+    ];
+  }
   return [{ label: "Status", value: device.status.toUpperCase() }];
 }
 
@@ -155,6 +167,7 @@ interface CityMapProps {
   states?: Record<string, LightingState>;
   trafficStates?: Record<string, TrafficState>;
   waterStates?: Record<string, WaterState>;
+  wasteStates?: Record<string, WasteState>;
   telemetry?: Record<string, TelemetrySample[]>;
   serviceFilter?: MapServiceFilter;
   layers?: CityMapLayers;
@@ -173,6 +186,7 @@ export function CityMap({
   states,
   trafficStates,
   waterStates,
+  wasteStates,
   telemetry,
   serviceFilter = "all",
   layers = { devices: true, infrastructure: true, events: true, tickets: true },
@@ -292,7 +306,7 @@ export function CityMap({
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-            {stateMeta(selectedDevice, states, trafficStates, waterStates, telemetry).map((m) => (
+            {stateMeta(selectedDevice, states, trafficStates, waterStates, wasteStates, telemetry).map((m) => (
               <div key={m.label}>
                 <div className="text-[10px] uppercase tracking-wide text-ink-400">{m.label}</div>
                 <div className="tabular font-semibold">{m.value}</div>
